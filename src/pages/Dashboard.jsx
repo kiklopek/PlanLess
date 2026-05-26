@@ -13,124 +13,120 @@ import toast from 'react-hot-toast';
 /* ============================================================
    Data
    ============================================================ */
-const TODAY_STATS = { live: 1, booked: 8, missed: 1, attn: 2, totalCalls: 14, aiBookings: 7 };
+let CALLS = [];
+let CLIENTS = [];
+let SERVICES = [];
+let EVENTS = [];
 
-let CALLS = [
-  {
-    id: 'c1', who: 'Klára Svobodová', phone: '+420 724 118 220', t: '14:52', rel: 'právě teď', live: true,
-    sub: 'Rezervuje barvení + střih · pátek 10:00',
-    outcome: { kind: 'live', label: 'Hovor právě probíhá', sub: 'Klára si rezervuje barvení + střih na pátek u Terezy', service: 'Barvení + střih', staff: 'Tereza', price: 1900, when: 'Pá 24. 4. v 10:00' },
-    summary: 'Stálá klientka, alergie na amoniak (potvrzená). Vybírá pátek dopoledne, preferuje Terezu.',
-    tags: ['VIP', 'rezervace', 'alergie'], vip: true,
-  },
-  {
-    id: 'c2', who: 'Marek Dvořák', phone: '+420 607 221 668', t: '14:31', rel: 'před 21 min', status: 'booked',
-    sub: 'Pánský střih · pondělí 17:00',
-    outcome: { kind: 'booking', label: 'Rezervace vytvořena', sub: 'Pánský střih · Po 27. 4. v 17:00 u Lucie', service: 'Pánský střih', staff: 'Lucie', price: 450, when: 'Po 27. 4. v 17:00' },
-    summary: 'Pravidelný klient, žádné komplikace. AI nabídla 3 termíny, vybral si pondělní podvečer.',
-    tags: ['rezervace'],
-  },
-  {
-    id: 'c3', who: 'Neznámé číslo', phone: '+420 608 441 902', t: '13:08', rel: 'před 2 h', status: 'new',
-    sub: 'Nová klientka · dámský střih',
-    outcome: { kind: 'booking', label: 'Nová klientka — rezervace', sub: 'Střih dámský · Út 28. 4. v 16:30', service: 'Dámský střih', staff: 'Lucie', price: 650, when: 'Út 28. 4. v 16:30' },
-    summary: 'Klientka našla salon přes Google. AI vytvořila profil, ověřila telefonní číslo, rezervovala střih.',
-    tags: ['nový klient', 'rezervace'],
-  },
-  {
-    id: 'c4', who: 'Jana Horáková', phone: '+420 775 103 211', t: '11:44', rel: 'dopoledne', status: 'resched',
-    sub: 'Přesun rezervace · pátek → čtvrtek',
-    outcome: { kind: 'resched', label: 'Přesunutá rezervace', sub: 'Střih · z Pá 24. 4. 15:00 → Čt 23. 4. 11:00' },
-    summary: 'Klientka má v pátek pracovní cestu. AI nabídla 3 alternativy, vybrala čtvrtek dopoledne.',
-    tags: ['přesun'],
-  },
-  {
-    id: 'c5', who: 'Ondřej Novák', phone: '+420 602 734 556', t: '10:17', rel: 'dopoledne', status: 'info',
-    sub: 'Dotaz na ceník · odpověděla AI',
-    outcome: { kind: 'info', label: 'Dotaz vyřízen', sub: 'AI poslala ceník pánských služeb SMS' },
-    summary: 'Dotaz na ceny pánských služeb. AI poslala ceník, nabídla rezervaci. Klient zatím nereagoval.',
-    tags: ['info'],
-  },
-  {
-    id: 'c6', who: 'Neznámé číslo', phone: '+420 733 882 104', t: '09:42', rel: 'ráno', status: 'missed',
-    sub: 'Klient nezanechal vzkaz',
-    outcome: { kind: 'missed', label: 'Volajícího se nepodařilo zachytit', sub: 'Hovor 9:42, AI požádala o vzkaz, klient zavěsil' },
-    summary: 'Krátký hovor, klient nereagoval na pozdrav, zavěsil po 4 vteřinách. Doporučujeme zavolat zpět.',
-    tags: ['mimo dobu'],
-  },
-  {
-    id: 'c7', who: 'Tereza Malá', phone: '+420 728 451 990', t: 'včera 16:40', rel: 'včera', status: 'cancel',
-    sub: 'Zrušení · pondělí 14:00',
-    outcome: { kind: 'cancel', label: 'Zrušená rezervace', sub: 'Střih · Po 20. 4. 14:00' },
-    summary: 'Klientka zrušila kvůli nemoci. AI nabídla alternativní termín příští týden — neobjednala.',
-    tags: ['zrušeno'],
-  },
-];
+/* ── Week helpers ── */
+const CZ_DAYS = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
+const CZ_MONTHS = ['ledna','února','března','dubna','května','června','července','srpna','září','října','listopadu','prosince'];
+const CZ_MONTH_NAMES = ['Leden','Únor','Březen','Duben','Květen','Červen','Červenec','Srpen','Září','Říjen','Listopad','Prosinec'];
 
-const TRANSCRIPT = [
-  { t: '00:00', who: 'ai',     text: 'Dobrý den, salon Svatopluk, Nikola u telefonu. Jak vám mohu pomoci?' },
-  { t: '00:04', who: 'client', text: 'Dobrý den, Klára Svobodová. Chtěla bych se objednat na barvení.' },
-  { t: '00:09', who: 'ai',     text: 'Ráda vás slyším, paní Svobodová. Máte u nás zaznamenanou alergii na amoniak — platí to pořád?' },
-  { t: '00:14', who: 'client', text: 'Ano, prosím bez amoniaku.' },
-  { t: '00:18', who: 'ai',     text: 'Poznamenáno. Preferujete jako minule u Terezy?' },
-  { t: '00:21', who: 'client', text: 'Ano, Tereza prosím. Nejlépe tento pátek dopoledne.' },
-  { t: '00:27', who: 'ai',     text: 'Pátek 24. dubna u Terezy — volno je v 10:00 nebo 13:30. Přidat i střih?' },
-  { t: '00:34', who: 'client', text: 'Deset ráno a ano, i střih. Děkuju.' },
-];
+function getCurrentWeek() {
+  const now = new Date();
+  const dayOfWeek = (now.getDay() + 6) % 7; // Mon=0
+  const weekStart = new Date(now);
+  weekStart.setDate(weekStart.getDate() - dayOfWeek);
+  weekStart.setHours(0, 0, 0, 0);
+  return {
+    days: Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(weekStart);
+      d.setDate(d.getDate() + i);
+      return { s: CZ_DAYS[i], d: d.getDate(), date: d };
+    }),
+    todayCol: dayOfWeek,
+    weekStart,
+  };
+}
 
-let CLIENTS = [
-  { id: 'u1', name: 'Klára Svobodová',   phone: '+420 724 118 220', visits: 14, last: 'dnes',          vip: true, ini: 'KS', spend: 32400, fav: 'Barvení + střih',       note: 'Alergie na amoniak. Preferuje Terezu, vždy ráno.' },
-  { id: 'u2', name: 'Marek Dvořák',      phone: '+420 607 221 668', visits: 8,  last: 'dnes',                     ini: 'MD', spend: 5800,  fav: 'Pánský střih' },
-  { id: 'u3', name: 'Jana Horáková',     phone: '+420 775 103 211', visits: 8,  last: 'před 2 týdny',             ini: 'JH', spend: 11200, fav: 'Dámský střih',           note: 'Často přesouvá termíny.' },
-  { id: 'u4', name: 'Ondřej Novák',      phone: '+420 602 734 556', visits: 22, last: 'dnes',          vip: true, ini: 'ON', spend: 28900, fav: 'Pánský střih + vousy',   note: 'Kafe černé, bez cukru.' },
-  { id: 'u5', name: 'Tereza Malá',       phone: '+420 728 451 990', visits: 6,  last: 'před měsícem',             ini: 'TM', spend: 4800,  fav: 'Střih' },
-  { id: 'u6', name: 'Lenka Procházková', phone: '+420 604 229 117', visits: 11, last: 'před týdnem',              ini: 'LP', spend: 14800, fav: 'Melír' },
-  { id: 'u7', name: 'Adéla Vávrová',     phone: '+420 778 556 302', visits: 2,  last: 'před 2 měsíci',            ini: 'AV', spend: 1700,  fav: 'Foukaná' },
-  { id: 'u8', name: 'Petr Kolář',        phone: '+420 603 887 441', visits: 19, last: 'před týdnem',   vip: true, ini: 'PK', spend: 24500, fav: 'Pánský střih' },
-];
+function formatRelTime(date) {
+  const now = new Date();
+  const diff = Math.floor((now - date) / 60000);
+  if (diff < 2) return 'právě teď';
+  if (diff < 60) return `před ${diff} min`;
+  const h = Math.floor(diff / 60);
+  if (h < 24) return `před ${h} h`;
+  return date.toLocaleDateString('cs-CZ');
+}
 
-let SERVICES = [
-  { id: 's1',  name: 'Dámský střih',         cat: 'Střih',   d: 45,  p: 650,  st: ['Tereza', 'Lucie'],  on: true,  b: 48 },
-  { id: 's2',  name: 'Pánský střih',         cat: 'Střih',   d: 30,  p: 450,  st: ['Lucie', 'Honza'],   on: true,  b: 62 },
-  { id: 's3',  name: 'Pánský střih + vousy', cat: 'Střih',   d: 45,  p: 650,  st: ['Honza'],            on: true,  b: 31 },
-  { id: 's4',  name: 'Dětský střih',         cat: 'Střih',   d: 30,  p: 350,  st: ['Tereza', 'Lucie'],  on: true,  b: 14 },
-  { id: 's5',  name: 'Barvení — krátké',     cat: 'Barvení', d: 90,  p: 1400, st: ['Tereza'],           on: true,  b: 22 },
-  { id: 's6',  name: 'Barvení — dlouhé',     cat: 'Barvení', d: 120, p: 1900, st: ['Tereza'],           on: true,  b: 17 },
-  { id: 's7',  name: 'Melír',                cat: 'Barvení', d: 120, p: 2200, st: ['Tereza'],           on: true,  b: 9  },
-  { id: 's8',  name: 'Balayage',             cat: 'Barvení', d: 180, p: 3400, st: ['Tereza'],           on: true,  b: 5  },
-  { id: 's9',  name: 'Foukaná',              cat: 'Styling', d: 30,  p: 450,  st: ['Tereza', 'Lucie'],  on: true,  b: 28 },
-  { id: 's10', name: 'Slavnostní účes',      cat: 'Styling', d: 90,  p: 1800, st: ['Tereza'],           on: false, b: 2  },
-];
+function getDayGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Dobré ráno';
+  if (h < 18) return 'Dobré odpoledne';
+  return 'Dobrý večer';
+}
 
-const WEEK = [
-  { s: 'Po', d: 21 }, { s: 'Út', d: 22 }, { s: 'St', d: 23 },
-  { s: 'Čt', d: 24 }, { s: 'Pá', d: 25 }, { s: 'So', d: 26 }, { s: 'Ne', d: 27 },
-];
-const TODAY_COL = 1; // Út
+function getTodayLabel() {
+  const now = new Date();
+  return `${CZ_DAYS[(now.getDay() + 6) % 7]} ${now.getDate()}. ${CZ_MONTHS[now.getMonth()]} · ${now.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}`;
+}
 
-let EVENTS = [
-  { col: 0, s: 9,    e: 10,    t: 'Lenka P. — Foukaná',          who: 'Lucie' },
-  { col: 0, s: 10.5, e: 12,    t: 'Klára S. — Melír',            who: 'Tereza',  c: 'green' },
-  { col: 0, s: 14,   e: 14.75, t: 'Walk-in — Pánský',            who: 'Honza',   c: 'info' },
-  { col: 1, s: 9,    e: 9.5,   t: 'Marek D. — Pánský',           who: 'Lucie' },
-  { col: 1, s: 10,   e: 10.75, t: 'Ondřej N. — Střih+vousy',     who: 'Honza' },
-  { col: 1, s: 11.5, e: 12.25, t: 'Adéla V. — Foukaná',          who: 'Tereza',  c: 'info' },
-  { col: 1, s: 14,   e: 15.5,  t: 'Jana H. — Barvení',           who: 'Tereza',  c: 'green' },
-  { col: 1, s: 16.5, e: 17.25, t: 'Nová — Střih',                who: 'Lucie' },
-  { col: 2, s: 9.5,  e: 11.5,  t: 'Balayage — Petra N.',         who: 'Tereza',  c: 'green' },
-  { col: 2, s: 13,   e: 13.5,  t: 'Pánský — Karel Š.',           who: 'Honza' },
-  { col: 2, s: 15,   e: 16,    t: 'Melír — Zuzana K.',           who: 'Tereza',  c: 'green' },
-  { col: 3, s: 9,    e: 10.5,  t: 'Jana H. — Střih (přesun)',    who: 'Tereza',  c: 'warn' },
-  { col: 3, s: 11,   e: 11.75, t: 'Střih — Eva Š.',              who: 'Lucie' },
-  { col: 3, s: 14.5, e: 15.25, t: 'Střih — Tomáš R.',            who: 'Honza' },
-  { col: 4, s: 10,   e: 12,    t: 'Klára S. — Barvení+střih',    who: 'Tereza',  c: 'green' },
-  { col: 4, s: 13,   e: 13.5,  t: 'Pánský — Jan V.',             who: 'Honza' },
-  { col: 4, s: 15,   e: 16.5,  t: 'Melír — Martina O.',          who: 'Tereza',  c: 'green' },
-  { col: 4, s: 17,   e: 17.5,  t: 'Marek D. — Pánský',           who: 'Lucie' },
-  { col: 5, s: 9,    e: 10,    t: 'Foukaná — Lenka P.',          who: 'Lucie' },
-  { col: 5, s: 10.5, e: 12,    t: 'Slavnostní účes',             who: 'Tereza',  c: 'info' },
-  { col: 1, s: 13,   e: 13.75, t: 'AI navrhuje · Petr K.',       who: 'volný slot', ai: true },
-];
+function mapCallRow(r) {
+  return {
+    id: r.id,
+    who: r.customer_name || r.customer_phone || 'Neznámé číslo',
+    phone: r.customer_phone || '',
+    t: new Date(r.created_at).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' }),
+    rel: formatRelTime(new Date(r.created_at)),
+    status: r.status,
+    live: false,
+    sub: r.summary || '',
+    summary: r.transcript_full || r.summary || '',
+    tags: [r.status].filter(Boolean),
+    vip: false,
+    created_at: r.created_at,
+    outcome: {
+      kind: r.status,
+      label: r.status === 'booked' ? 'Rezervace vytvořena' : r.status === 'missed' ? 'Zmeškaný hovor' : 'Dotaz zákazníka',
+      sub: r.summary || '',
+    },
+  };
+}
+
+function mapCustomerRow(r) {
+  const ini = (r.name || r.phone || '?').slice(0, 2).toUpperCase();
+  return {
+    id: r.id,
+    name: r.name || r.phone,
+    phone: r.phone,
+    vip: r.vip_status,
+    note: r.notes || '',
+    ini,
+    visits: 0,
+    last: r.last_visit_date ? new Date(r.last_visit_date).toLocaleDateString('cs-CZ') : '—',
+    spend: 0,
+    fav: '—',
+  };
+}
+
+function mapServiceRow(r) {
+  return {
+    id: r.id,
+    name: r.name,
+    cat: 'Služby',
+    d: r.duration_min,
+    p: r.price,
+    b: 0,
+    on: true,
+    buffer_after_min: r.buffer_after_min || 0,
+  };
+}
+
+function mapBookingToEvent(r) {
+  const start = new Date(r.starts_at);
+  const end = new Date(r.ends_at);
+  const col = (start.getDay() + 6) % 7; // Mon=0
+  return {
+    id: r.id,
+    col,
+    s: start.getHours() + start.getMinutes() / 60,
+    e: end.getHours() + end.getMinutes() / 60,
+    t: r.note || 'Rezervace',
+    who: '—',
+    starts_at: r.starts_at,
+  };
+}
 
 /* ============================================================
    Utilities
@@ -259,35 +255,49 @@ const Dock = ({ title, crumb, right, aiOn }) => (
    Today view
    ============================================================ */
 const TodayView = () => {
+  const week = getCurrentWeek();
   const liveCall = CALLS.find((c) => c.live);
-  const upcoming = EVENTS.filter((e) => e.col === TODAY_COL && e.s >= 14.5).slice(0, 4);
+  const nowH = new Date().getHours() + new Date().getMinutes() / 60;
+  const upcoming = EVENTS.filter((e) => e.col === week.todayCol && e.s >= nowH).slice(0, 4);
+  const todayCalls = CALLS.filter((c) => {
+    if (!c.created_at) return false;
+    const d = new Date(c.created_at);
+    const now = new Date();
+    return d.toDateString() === now.toDateString();
+  });
+  const booked = todayCalls.filter(c => c.status === 'booked').length;
+  const missed = todayCalls.filter(c => c.status === 'missed').length;
   const attn = CALLS.filter((c) => ['missed', 'resched'].includes(c.status));
 
   return (
     <div className="col gap-6">
       <div className="hero-card">
         <div className="hero-text">
-          <div className="eyebrow" style={{ marginBottom: 14 }}>Úterý 22. dubna · 14:52</div>
+          <div className="eyebrow" style={{ marginBottom: 14 }}>{getTodayLabel()}</div>
           <div className="greet">
-            Dobré odpoledne, <span className="it">Svatopluku</span>.<br />
-            Nikola dnes vyřídila <span className="it">{TODAY_STATS.totalCalls} hovorů</span><br />
-            a získala <span className="it">{TODAY_STATS.aiBookings} rezervací</span>.
+            {getDayGreeting()}.<br />
+            {todayCalls.length > 0
+              ? <>Nikola dnes vyřídila <span className="it">{todayCalls.length} hovorů</span> a získala <span className="it">{booked} rezervací</span>.</>
+              : <>Žádné hovory dnes zatím. <span className="it">Nikola</span> čeká na první hovor.</>
+            }
           </div>
-          <div className="muted" style={{ fontSize: 14, marginTop: 14, maxWidth: 540, lineHeight: 1.55 }}>
-            Vše je v pořádku. Dvě věci čekají na vaši pozornost — zmeškaný hovor a žádost o přesun.
-          </div>
+          {attn.length > 0 && (
+            <div className="muted" style={{ fontSize: 14, marginTop: 14, maxWidth: 540, lineHeight: 1.55 }}>
+              {attn.length} {attn.length === 1 ? 'věc čeká' : 'věci čekají'} na vaši pozornost.
+            </div>
+          )}
         </div>
         <div className="kpi-row">
           <div className="kpi accent">
-            <div className="n">{TODAY_STATS.live}</div>
+            <div className="n">{CALLS.filter(c => c.live).length}</div>
             <div className="l">právě v hovoru</div>
           </div>
           <div className="kpi">
-            <div className="n">{TODAY_STATS.booked}</div>
+            <div className="n">{booked}</div>
             <div className="l">rezervací dnes</div>
           </div>
           <div className="kpi">
-            <div className="n">{TODAY_STATS.attn}</div>
+            <div className="n">{attn.length}</div>
             <div className="l">k pozornosti</div>
           </div>
         </div>
@@ -653,6 +663,11 @@ const InboxView = ({ selId, setSelId }) => {
             </div>
           </div>
           <div className="list-body">
+            {filtered.length === 0 && (
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
+                Žádné hovory zatím. Nikola je připravená.
+              </div>
+            )}
             {filtered.map((c) => (
               <CallRow key={c.id} call={c} on={sel?.id === c.id} onClick={() => setSelId(c.id)} />
             ))}
@@ -676,8 +691,11 @@ const CalendarView = ({ aiOn }) => {
   const hours = [];
   for (let h = START_H; h <= END_H; h++) hours.push(h);
 
-  const now = 14 + 52 / 60;
-  const nowTop = (now - START_H) * ROW_H;
+  const nowDate = new Date();
+  const nowH = nowDate.getHours() + nowDate.getMinutes() / 60;
+  const nowTop = (nowH - START_H) * ROW_H;
+  const week = getCurrentWeek();
+  const monthLabel = CZ_MONTH_NAMES[nowDate.getMonth()];
 
   const events = EVENTS.filter((e) => staff === 'all' || e.who.toLowerCase().includes(staff));
 
@@ -686,7 +704,7 @@ const CalendarView = ({ aiOn }) => {
       <div className="cal-toolbar">
         <div className="row gap-3" style={{ alignItems: 'center' }}>
           <Btn variant="ghost" icon={I.ChevLeft} size="sm" />
-          <div className="cal-month">Duben <span className="it">2026</span></div>
+          <div className="cal-month">{monthLabel} <span className="it">{nowDate.getFullYear()}</span></div>
           <Btn variant="ghost" icon={I.ChevRight} size="sm" />
           <Btn variant="ghost" size="sm">Dnes</Btn>
         </div>
@@ -697,7 +715,7 @@ const CalendarView = ({ aiOn }) => {
             onChange={setView}
           />
           <Seg
-            items={[{ v: 'all', l: 'Všichni' }, { v: 'tereza', l: 'Tereza' }, { v: 'lucie', l: 'Lucie' }, { v: 'honza', l: 'Honza' }]}
+            items={[{ v: 'all', l: 'Všichni' }]}
             value={staff}
             onChange={setStaff}
           />
@@ -705,21 +723,10 @@ const CalendarView = ({ aiOn }) => {
         </div>
       </div>
 
-      {aiOn && (
-        <div className="ai-banner">
-          <div className="av" style={{ width: 30, height: 30, borderRadius: 9, background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: 600, fontSize: 12, display: 'grid', placeItems: 'center' }}>N</div>
-          <div className="body">
-            <span className="it">Nikola</span> navrhuje rezervaci v <strong>úterý 13:00 u Lucie</strong> pro Petra K. — viděla v jeho historii vzor.
-          </div>
-          <Btn variant="ghost" size="sm">Zamítnout</Btn>
-          <Btn size="sm" variant="accent">Přijmout</Btn>
-        </div>
-      )}
-
       <div className="cal">
         <div className="cal-h gut" />
-        {WEEK.map((w, i) => (
-          <div key={i} className={cx('cal-h', i === TODAY_COL && 'today')}>
+        {week.days.map((w, i) => (
+          <div key={i} className={cx('cal-h', i === week.todayCol && 'today')}>
             <div>{w.s}</div>
             <div className="d">{w.d}</div>
           </div>
@@ -729,14 +736,14 @@ const CalendarView = ({ aiOn }) => {
           {hours.map((h) => <div key={h} className="cal-row-time">{h}:00</div>)}
         </div>
 
-        {WEEK.map((w, col) => {
+        {week.days.map((w, col) => {
           const dim = col === 6;
           return (
             <div key={col} className={cx('cal-col', dim && 'dim')}>
               {hours.map((h) => <div key={h} className="cal-cell" />)}
               {events.filter((e) => e.col === col).map((e, i) => {
                 const top = (e.s - START_H) * ROW_H;
-                const height = (e.e - e.s) * ROW_H - 4;
+                const height = Math.max((e.e - e.s) * ROW_H - 4, 20);
                 return (
                   <div
                     key={i}
@@ -744,11 +751,16 @@ const CalendarView = ({ aiOn }) => {
                     style={{ top, height }}
                   >
                     <div className="t">{e.t}</div>
-                    <div className="s">{fmtTime(e.s)}–{fmtTime(e.e)} · {e.who}</div>
+                    <div className="s">{fmtTime(e.s)}–{fmtTime(e.e)}</div>
                   </div>
                 );
               })}
-              {col === TODAY_COL && (
+              {events.filter(e => e.col === col).length === 0 && (
+                <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}>
+                  <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>volno</span>
+                </div>
+              )}
+              {col === week.todayCol && (
                 <div className="now-line" style={{ top: nowTop }}>
                   <div className="ball" />
                 </div>
@@ -786,7 +798,7 @@ const ClientRow = ({ c, on, onClick }) => (
 );
 
 const ClientsView = () => {
-  const [sel, setSel] = useState('u1');
+  const [sel, setSel] = useState(null);
   const [q, setQ] = useState('');
   const filtered = q ? CLIENTS.filter((c) => c.name.toLowerCase().includes(q.toLowerCase())) : CLIENTS;
   const client = CLIENTS.find((c) => c.id === sel) || CLIENTS[0];
@@ -805,6 +817,11 @@ const ClientsView = () => {
           </div>
         </div>
         <div className="list-body">
+          {filtered.length === 0 && (
+            <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
+              {q ? 'Žádné výsledky.' : 'Zatím žádní klienti. Přidají se automaticky po prvním hovoru.'}
+            </div>
+          )}
           {filtered.map((c) => (
             <ClientRow key={c.id} c={c} on={sel === c.id} onClick={() => setSel(c.id)} />
           ))}
@@ -812,78 +829,59 @@ const ClientsView = () => {
       </div>
 
       <div className="profile">
-        <div className="card lg">
-          <div className="profile-hd">
-            <Avatar ini={client.ini} size="xl" vip={client.vip} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="nm">
-                {client.name}
-                {client.vip && <span className="it">VIP</span>}
+        {!client ? (
+          <div style={{ display: 'grid', placeItems: 'center', height: '100%', color: 'var(--ink-3)', fontSize: 13 }}>
+            Vyberte klienta ze seznamu.
+          </div>
+        ) : (<>
+          <div className="card lg">
+            <div className="profile-hd">
+              <Avatar ini={client.ini} size="xl" vip={client.vip} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="nm">
+                  {client.name}
+                  {client.vip && <span className="it">VIP</span>}
+                </div>
+                <div className="row gap-4 muted" style={{ fontSize: 13, marginTop: 10, flexWrap: 'wrap' }}>
+                  <span className="row gap-2"><I.Phone s={12} /><span className="mono">{client.phone}</span></span>
+                  <span className="row gap-2"><I.Clock s={12} />Poslední: {client.last}</span>
+                  <span className="row gap-2"><I.Scissors s={12} />{client.fav}</span>
+                </div>
               </div>
-              <div className="row gap-4 muted" style={{ fontSize: 13, marginTop: 10, flexWrap: 'wrap' }}>
-                <span className="row gap-2"><I.Phone s={12} /><span className="mono">{client.phone}</span></span>
-                <span className="row gap-2"><I.Clock s={12} />Poslední: {client.last}</span>
-                <span className="row gap-2"><I.Scissors s={12} />{client.fav}</span>
+              <div className="row gap-2">
+                <Btn icon={I.Phone} size="sm">Zavolat</Btn>
+                <Btn variant="accent" icon={I.Plus} size="sm">Rezervovat</Btn>
               </div>
             </div>
-            <div className="row gap-2">
-              <Btn icon={I.Phone} size="sm">Zavolat</Btn>
-              <Btn variant="accent" icon={I.Plus} size="sm">Rezervovat</Btn>
-            </div>
+            {client.note && (
+              <div className="note" style={{ marginTop: 22 }}>
+                <div className="ic"><I.Sparkle s={16} /></div>
+                <div className="body"><strong>Co si Nikola pamatuje:</strong> {client.note}</div>
+              </div>
+            )}
           </div>
-          {client.note && (
-            <div className="note" style={{ marginTop: 22 }}>
-              <div className="ic"><I.Sparkle s={16} /></div>
-              <div className="body"><strong>Co si Nikola pamatuje:</strong> {client.note}</div>
-            </div>
-          )}
-        </div>
 
-        <div className="stat-grid">
-          <div className="stat"><div className="n">{client.visits}</div><div className="l">návštěv celkem</div></div>
-          <div className="stat"><div className="n">{fmtPrice(client.spend)}</div><div className="l">útrata u vás</div></div>
-          <div className="stat"><div className="n">42 <span style={{ fontSize: 14, color: 'var(--ink-3)' }}>dní</span></div><div className="l">průměr mezi návštěvami</div></div>
-          <div className="stat"><div className="n">98 <span style={{ fontSize: 14, color: 'var(--ink-3)' }}>%</span></div><div className="l">dochvilnost</div></div>
-        </div>
+          <div className="stat-grid">
+            <div className="stat"><div className="n">{client.visits}</div><div className="l">návštěv celkem</div></div>
+            <div className="stat"><div className="n">{fmtPrice(client.spend)}</div><div className="l">útrata u vás</div></div>
+            <div className="stat"><div className="n">—</div><div className="l">průměr mezi návštěvami</div></div>
+            <div className="stat"><div className="n">—</div><div className="l">dochvilnost</div></div>
+          </div>
 
-        <div className="card">
-          <div className="section-hd">
-            <div className="h-section" style={{ fontSize: 18 }}>Aktivita</div>
-            <Btn variant="ghost" size="sm">Zobrazit vše</Btn>
-          </div>
-          <div className="tl">
-            <div className="tl-item">
-              <div className="tl-d accent"><I.Calendar /></div>
-              <div className="tl-t">Rezervace vytvořena</div>
-              <div className="tl-x">Barvení + střih · Pá 24. 4. v 10:00 · Tereza · 1 900 Kč</div>
-              <div className="tl-w">dnes 14:49 · přes AI hovor</div>
+          <div className="card">
+            <div className="section-hd">
+              <div className="h-section" style={{ fontSize: 18 }}>Aktivita</div>
             </div>
-            <div className="tl-item">
-              <div className="tl-d"><I.Phone /></div>
-              <div className="tl-t">Příchozí hovor — 48 vteřin</div>
-              <div className="tl-x">Nikola potvrdila alergii na amoniak, Tereza k dispozici.</div>
-              <div className="tl-w">dnes 14:48</div>
-            </div>
-            <div className="tl-item">
-              <div className="tl-d"><I.Message /></div>
-              <div className="tl-t">SMS potvrzení odesláno</div>
-              <div className="tl-x">„Potvrzujeme rezervaci na Pá 24. 4. v 10:00…"</div>
-              <div className="tl-w">dnes 14:49</div>
-            </div>
-            <div className="tl-item">
-              <div className="tl-d warn"><I.Star /></div>
-              <div className="tl-t">Přidán VIP status</div>
-              <div className="tl-x">Manuálně přidal: Svatopluk V.</div>
-              <div className="tl-w">před 2 týdny</div>
-            </div>
-            <div className="tl-item">
-              <div className="tl-d"><I.Calendar /></div>
-              <div className="tl-t">Rezervace — Barvení</div>
-              <div className="tl-x">Út 8. 4. · dokončeno · 1 400 Kč</div>
-              <div className="tl-w">před 3 týdny</div>
+            <div className="tl">
+              <div className="tl-item">
+                <div className="tl-d"><I.Phone /></div>
+                <div className="tl-t">Aktivita se načte z databáze</div>
+                <div className="tl-x">Po propojení systémů se zde zobrazí historia hovorů a rezervací.</div>
+                <div className="tl-w">{client.last}</div>
+              </div>
             </div>
           </div>
-        </div>
+        </>)}
       </div>
     </div>
   );
@@ -927,6 +925,11 @@ const ServicesView = () => {
             </tr>
           </thead>
           <tbody>
+            {rows.length === 0 && (
+              <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
+                Zatím žádné služby. Přidejte první tlačítkem výše.
+              </td></tr>
+            )}
             {rows.map((s) => (
               <tr key={s.id}>
                 <td>
@@ -935,7 +938,7 @@ const ServicesView = () => {
                 </td>
                 <td className="num muted">{s.d} min</td>
                 <td className="num" style={{ fontWeight: 500 }}>{fmtPrice(s.p)}</td>
-                <td><div className="svc-tags">{s.st.map((p) => <Tag key={p}>{p}</Tag>)}</div></td>
+                <td><div className="svc-tags">{(s.st || []).map((p) => <Tag key={p}>{p}</Tag>)}</div></td>
                 <td className="num muted" style={{ textAlign: 'right' }}>{s.b}</td>
                 <td>
                   {s.on
@@ -1378,73 +1381,31 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!user) return;
+    const week = getCurrentWeek();
     Promise.allSettled([
-      fetchCalls().then(rows => {
-        if (rows.length > 0) {
-          CALLS = rows.map(r => ({
-            id: r.id, who: r.customer_name || r.customer_phone || 'Neznámé číslo',
-            phone: r.customer_phone || '', t: new Date(r.created_at).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' }),
-            rel: new Date(r.created_at).toLocaleDateString('cs-CZ'),
-            status: r.status, sub: r.summary || '',
-            summary: r.transcript_full || r.summary || '',
-            tags: [r.status], vip: false,
-            outcome: { kind: r.status, label: r.status, sub: r.summary || '' },
-          }));
-        }
-      }),
-      fetchCustomers().then(rows => {
-        if (rows.length > 0) {
-          CLIENTS = rows.map(r => ({
-            id: r.id, name: r.name || r.phone, phone: r.phone,
-            vip: r.vip_status, note: r.notes || '',
-            ini: (r.name || r.phone).slice(0, 2).toUpperCase(),
-            visits: 0, last: r.last_visit_date || '—', spend: 0, fav: '—',
-          }));
-        }
-      }),
-      fetchServices().then(rows => {
-        if (rows.length > 0) {
-          SERVICES = rows.map(r => ({
-            id: r.id, name: r.name, cat: 'Služby',
-            d: r.duration_min, p: r.price, b: 0, on: true,
-          }));
-        }
-      }),
+      fetchCalls().then(rows => { CALLS = rows.map(mapCallRow); }),
+      fetchCustomers().then(rows => { CLIENTS = rows.map(mapCustomerRow); }),
+      fetchServices().then(rows => { SERVICES = rows.map(mapServiceRow); }),
       fetchBookings().then(rows => {
-        if (rows.length > 0) {
-          EVENTS = rows.map(r => {
-            const start = new Date(r.starts_at);
-            const end = new Date(r.ends_at);
-            const h = start.getHours() + start.getMinutes() / 60;
-            const e2 = end.getHours() + end.getMinutes() / 60;
-            return { col: 0, s: h, e: e2, t: r.note || 'Rezervace', who: '—', id: r.id };
-          });
-        }
+        const weekEnd = new Date(week.weekStart);
+        weekEnd.setDate(weekEnd.getDate() + 7);
+        EVENTS = rows
+          .filter(r => {
+            const s = new Date(r.starts_at);
+            return s >= week.weekStart && s < weekEnd;
+          })
+          .map(mapBookingToEvent);
       }),
     ]).then(() => setDataVersion(v => v + 1));
   }, [user]);
 
   const refreshServices = useCallback(async () => {
-    const rows = await fetchServices();
-    if (rows.length > 0) {
-      SERVICES = rows.map(r => ({
-        id: r.id, name: r.name, cat: 'Služby',
-        d: r.duration_min, p: r.price, b: 0, on: true,
-      }));
-    }
+    SERVICES = (await fetchServices()).map(mapServiceRow);
     setDataVersion(v => v + 1);
   }, []);
 
   const refreshCustomers = useCallback(async () => {
-    const rows = await fetchCustomers();
-    if (rows.length > 0) {
-      CLIENTS = rows.map(r => ({
-        id: r.id, name: r.name || r.phone, phone: r.phone,
-        vip: r.vip_status, note: r.notes || '',
-        ini: (r.name || r.phone).slice(0, 2).toUpperCase(),
-        visits: 0, last: r.last_visit_date || '—', spend: 0, fav: '—',
-      }));
-    }
+    CLIENTS = (await fetchCustomers()).map(mapCustomerRow);
     setDataVersion(v => v + 1);
   }, []);
 
