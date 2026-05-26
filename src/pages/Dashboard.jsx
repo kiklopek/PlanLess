@@ -6,8 +6,9 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import { fetchCalls } from '../lib/callsDb.js';
 import { fetchCustomers, upsertCustomer, deleteCustomerByPhone } from '../lib/customersDb.js';
 import { fetchServices, createService, updateService, deleteService } from '../lib/servicesDb.js';
-import { fetchBookings } from '../lib/bookingsDb.js';
+import { fetchBookings, createBooking } from '../lib/bookingsDb.js';
 import { getCompanySettings, saveCompanySettings } from '../lib/companySettings.js';
+import { SuggestedSlots } from '../components/SuggestedSlots.jsx';
 import toast from 'react-hot-toast';
 
 /* ============================================================
@@ -454,9 +455,31 @@ const TranscriptTurn = ({ turn }) => (
   </div>
 );
 
-const CallDetail = ({ call }) => {
+const CallDetail = ({ call, onBookingCreated }) => {
+  const [selectedServiceId, setSelectedServiceId] = useState('');
+  const [bookNote, setBookNote] = useState('');
+
+  useEffect(() => {
+    setSelectedServiceId('');
+    setBookNote('');
+  }, [call?.id]);
+
   if (!call) return null;
   const o = call.outcome;
+
+  async function handleBookSlot(slot) {
+    const svc = SERVICES.find(s => s.id === selectedServiceId);
+    if (!svc) return false;
+    await createBooking({
+      call_id: call.id,
+      service_id: selectedServiceId,
+      starts_at: slot.startsAt,
+      ends_at: slot.endsAt,
+      note: bookNote || null,
+    });
+    if (onBookingCreated) onBookingCreated();
+    return true;
+  }
   return (
     <div className="detail">
       <div className="detail-hd">
@@ -542,7 +565,7 @@ const CallDetail = ({ call }) => {
               </div>
             </div>
             <div className="tr">
-              {TRANSCRIPT.map((t, i) => <TranscriptTurn key={i} turn={t} />)}
+              {(call.transcript || []).map((t, i) => <TranscriptTurn key={i} turn={t} />)}
               <div className="tr-turn">
                 <div className="tr-meta" style={{ color: 'var(--accent)' }}>00:42</div>
                 <div>
@@ -555,6 +578,36 @@ const CallDetail = ({ call }) => {
             </div>
           </div>
         )}
+
+        <div style={{ marginTop: 28 }}>
+          <div className="eyebrow" style={{ marginBottom: 14 }}>Vytvořit rezervaci</div>
+          <label style={{ display: 'grid', gap: 4, marginBottom: 14 }}>
+            <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>Služba</span>
+            <select
+              value={selectedServiceId}
+              onChange={e => setSelectedServiceId(e.target.value)}
+              style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--paper)', fontSize: 13, color: 'var(--ink)', outline: 'none' }}
+            >
+              <option value="">Vyberte službu…</option>
+              {SERVICES.map(s => (
+                <option key={s.id} value={s.id}>{s.name} · {s.d} min · {s.p} Kč</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ display: 'grid', gap: 4, marginBottom: 14 }}>
+            <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>Poznámka (volitelně)</span>
+            <input
+              value={bookNote}
+              onChange={e => setBookNote(e.target.value)}
+              placeholder="Poznámka k rezervaci…"
+              style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--paper)', fontSize: 13, color: 'var(--ink)', outline: 'none' }}
+            />
+          </label>
+          <SuggestedSlots
+            serviceId={selectedServiceId}
+            onBookSlot={handleBookSlot}
+          />
+        </div>
       </div>
     </div>
   );
@@ -562,30 +615,40 @@ const CallDetail = ({ call }) => {
 
 const TodayHero = () => {
   const liveCall = CALLS.find((c) => c.live);
+  const now = new Date();
+  const todayCalls = CALLS.filter(c => c.created_at && new Date(c.created_at).toDateString() === now.toDateString());
+  const booked = todayCalls.filter(c => c.status === 'booked').length;
+  const attn = CALLS.filter(c => ['missed', 'resched'].includes(c.status)).length;
+
   return (
     <div className="today-hero">
       <div className="hero-card">
         <div className="hero-text">
-          <div className="eyebrow" style={{ marginBottom: 14 }}>Úterý 22. dubna · 14:52</div>
+          <div className="eyebrow" style={{ marginBottom: 14 }}>{getTodayLabel()}</div>
           <div className="greet">
-            Dobré odpoledne, <span className="it">Svatopluku</span>.<br />
-            Nikola dnes vyřídila <span className="it">{TODAY_STATS.totalCalls} hovorů</span> a získala <span className="it">{TODAY_STATS.aiBookings} rezervací</span>.
+            {getDayGreeting()}.<br />
+            {todayCalls.length > 0
+              ? <>Nikola dnes vyřídila <span className="it">{todayCalls.length} hovorů</span> a získala <span className="it">{booked} rezervací</span>.</>
+              : <>Žádné hovory dnes zatím. <span className="it">Nikola</span> je připravena.</>
+            }
           </div>
-          <div className="muted" style={{ fontSize: 14, marginTop: 14, maxWidth: 540, lineHeight: 1.55 }}>
-            Vše je v pořádku. Dvě věci čekají na vaši pozornost — zmeškaný hovor a žádost o přesun.
-          </div>
+          {attn > 0 && (
+            <div className="muted" style={{ fontSize: 14, marginTop: 14, maxWidth: 540, lineHeight: 1.55 }}>
+              {attn} {attn === 1 ? 'věc čeká' : 'věci čekají'} na vaši pozornost.
+            </div>
+          )}
         </div>
         <div className="kpi-row">
           <div className="kpi accent">
-            <div className="n">{TODAY_STATS.live}</div>
+            <div className="n">{CALLS.filter(c => c.live).length}</div>
             <div className="l">právě teď v hovoru</div>
           </div>
           <div className="kpi">
-            <div className="n">{TODAY_STATS.booked}</div>
+            <div className="n">{booked}</div>
             <div className="l">nových rezervací dnes</div>
           </div>
           <div className="kpi">
-            <div className="n">{TODAY_STATS.attn}</div>
+            <div className="n">{attn}</div>
             <div className="l">potřebují pozornost</div>
           </div>
         </div>
@@ -595,7 +658,7 @@ const TodayHero = () => {
         <div className="live-card">
           <div className="hd">
             <div style={{ position: 'relative' }}>
-              <Avatar ini="KS" size="md" vip />
+              <Avatar ini={getInitials(liveCall.who)} size="md" vip={liveCall.vip} />
               <div className="pulse" style={{ position: 'absolute', inset: -3, pointerEvents: 'none' }} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -605,10 +668,8 @@ const TodayHero = () => {
             <Tag variant="live"><span className="d" /><Wave size={9} /> LIVE</Tag>
           </div>
           <div className="what">
-            <div className="lab">Co se právě děje</div>
-            <div style={{ fontSize: 13.5, lineHeight: 1.55 }}>
-              Nikola domlouvá <strong>barvení + střih</strong> na <strong>pátek 10:00 u Terezy</strong>. Klientka má alergii na amoniak (potvrzeno).
-            </div>
+            <div className="lab">Probíhající hovor</div>
+            <div style={{ fontSize: 13.5, lineHeight: 1.55 }}>{liveCall.sub || 'Nikola vyřizuje hovor…'}</div>
           </div>
           <div className="row gap-2">
             <Btn variant="accent" icon={I.Volume} size="sm">Poslouchat živě</Btn>
@@ -620,7 +681,7 @@ const TodayHero = () => {
   );
 };
 
-const InboxView = ({ selId, setSelId }) => {
+const InboxView = ({ selId, setSelId, onBookingCreated }) => {
   const [filter, setFilter] = useState('all');
   const filtered = useMemo(() => {
     if (filter === 'all') return CALLS;
@@ -673,7 +734,7 @@ const InboxView = ({ selId, setSelId }) => {
             ))}
           </div>
         </div>
-        <CallDetail call={sel} />
+        <CallDetail call={sel} onBookingCreated={onBookingCreated} />
       </div>
     </div>
   );
@@ -1409,6 +1470,17 @@ export default function Dashboard() {
     setDataVersion(v => v + 1);
   }, []);
 
+  const refreshBookings = useCallback(async () => {
+    const week = getCurrentWeek();
+    const weekEnd = new Date(week.weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+    const rows = await fetchBookings();
+    EVENTS = rows
+      .filter(r => { const s = new Date(r.starts_at); return s >= week.weekStart && s < weekEnd; })
+      .map(mapBookingToEvent);
+    setDataVersion(v => v + 1);
+  }, []);
+
   const m = VIEW_META[nav];
 
   const right = (
@@ -1428,7 +1500,7 @@ export default function Dashboard() {
           <Dock title={m.title} crumb={m.crumb} right={right} aiOn={aiOn} />
           <div className="view">
             {nav === 'today'    && <TodayView />}
-            {nav === 'inbox'    && <InboxView selId={callSel} setSelId={setCallSel} />}
+            {nav === 'inbox'    && <InboxView selId={callSel} setSelId={setCallSel} onBookingCreated={refreshBookings} />}
             {nav === 'calendar' && <CalendarView aiOn={aiOn} />}
             {nav === 'clients'  && <ClientsView />}
             {nav === 'services' && <ServicesView />}
