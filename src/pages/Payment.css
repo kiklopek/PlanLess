@@ -1,0 +1,272 @@
+/* Payment.css — page-specific styles */
+
+/* ===== Header ===== */
+.pay-nav {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 16px;
+  padding: 18px 40px;
+  background: rgba(12,10,12,0.85);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+.pay-nav .brand { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+.pay-nav .brand-name { font-family: 'Newsreader', serif; font-size: 18px; letter-spacing: -0.02em; font-weight: 500; }
+.pay-nav .step-track { display: flex; align-items: center; gap: 10px; margin-left: 32px; }
+.pay-step {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--ink-3);
+}
+.pay-step .n {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(255,255,255,0.05); border: 1px solid var(--line-2);
+  display: grid; place-items: center;
+  font-size: 11px; font-weight: 600;
+}
+.pay-step.done .n { background: var(--accent); border-color: transparent; color: var(--accent-ink); }
+.pay-step.current { color: var(--ink); }
+.pay-step.current .n { background: rgba(255,255,255,0.08); border-color: var(--ink); color: var(--ink); }
+.step-dash { width: 24px; height: 1px; background: var(--line); }
+.pay-step.done + .step-dash { background: var(--accent); }
+.pay-nav .spacer { flex: 1; }
+.pay-nav .help { font-size: 13px; color: var(--ink-3); cursor: pointer; }
+.pay-nav .help:hover { color: var(--ink); }
+@media (max-width: 800px) {
+  .pay-nav { padding: 14px 20px; }
+  .pay-nav .step-track { display: none; }
+}
+
+/* ===== Layout ===== */
+.pay-stage {
+  position: relative; z-index: 1;
+  max-width: 1180px; margin: 0 auto;
+  padding: 56px 40px 80px;
+  display: grid; grid-template-columns: 1fr 460px;
+  gap: 56px; align-items: flex-start;
+}
+@media (max-width: 980px) {
+  .pay-stage { grid-template-columns: 1fr; padding: 28px 20px; gap: 28px; }
+}
+
+.pay-eyebrow {
+  font-family: 'Newsreader', serif; font-style: italic;
+  font-size: 14px; color: var(--accent); font-weight: 400;
+  display: inline-flex; align-items: center; gap: 12px;
+}
+.pay-eyebrow::before { content: ""; width: 22px; height: 1px; background: var(--accent); opacity: 0.5; }
+
+.pay-stage h1 {
+  font-family: 'Newsreader', serif;
+  font-size: clamp(32px, 4vw, 44px);
+  font-weight: 500; letter-spacing: -0.025em; line-height: 1.1;
+  margin: 14px 0 12px;
+}
+.pay-stage h1 .it { font-style: italic; color: var(--accent); font-weight: 400; }
+.pay-lead {
+  font-family: 'Newsreader', serif; font-style: italic;
+  font-size: 16px; color: var(--ink-2); margin-bottom: 32px;
+  line-height: 1.5;
+}
+
+/* ===== Form cards ===== */
+.pay-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 28px;
+  margin-bottom: 18px;
+}
+.pay-card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 22px;
+}
+.pay-card-head .t {
+  font-family: 'Newsreader', serif;
+  font-size: 20px; font-weight: 500; letter-spacing: -0.015em;
+  display: flex; align-items: center; gap: 12px;
+}
+.pay-card-head .t .num {
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 12px; font-weight: 600;
+  display: grid; place-items: center;
+}
+.pay-card-brands { display: flex; gap: 6px; }
+
+/* ===== Field grid ===== */
+.pay-field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.pay-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.pay-field.full { grid-column: 1 / -1; }
+.pay-label { font-size: 12px; color: var(--ink-3); font-weight: 500; }
+.pay-label .opt { font-family: 'Newsreader', serif; font-style: italic; color: var(--ink-3); font-size: 11px; margin-left: 4px; }
+.pay-input, .pay-select {
+  width: 100%; padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--line-2);
+  color: var(--ink);
+  font-size: 14px; font-family: inherit;
+  transition: border-color .15s, background .15s;
+  outline: none;
+}
+.pay-input:focus, .pay-select:focus { border-color: var(--accent-ring); background: rgba(255,255,255,0.05); }
+.pay-input::placeholder { color: var(--ink-4); }
+.pay-select { appearance: none; cursor: pointer; padding-right: 36px; background-image: url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1.5 L6 6.5 L11 1.5' stroke='%238a8278' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; }
+.pay-input.mono { font-family: 'Geist Mono', monospace; letter-spacing: 0.05em; }
+
+/* card number wrap */
+.card-input-wrap { position: relative; }
+.card-brands-detected {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  display: flex; gap: 6px;
+}
+.brand-tag {
+  font-family: 'Geist Mono', monospace; font-size: 9.5px;
+  padding: 3px 7px; border-radius: 4px;
+  border: 1px solid var(--line-2);
+  color: var(--ink-3);
+}
+.brand-tag.active { color: var(--ink); border-color: var(--accent-ring); background: var(--accent-soft); }
+
+/* ===== Billing cycle radios ===== */
+.pay-radio {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  cursor: pointer;
+  background: rgba(255,255,255,0.02);
+  margin-bottom: 8px;
+  transition: border-color .15s, background .15s;
+}
+.pay-radio.on { border-color: var(--accent-ring); background: var(--accent-soft); }
+.pay-radio .dot {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 1px solid var(--line-2);
+  flex-shrink: 0; position: relative;
+  transition: border-color .15s;
+}
+.pay-radio.on .dot { border-color: var(--accent); }
+.pay-radio.on .dot::after {
+  content: ""; position: absolute; inset: 3px;
+  border-radius: 50%; background: var(--accent);
+}
+.pay-radio .body { flex: 1; font-size: 13.5px; }
+.pay-radio .body .sub { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+.pay-radio .meta { font-family: 'Geist Mono', monospace; font-size: 12px; color: var(--ink-3); }
+.annual-badge {
+  font-size: 10px; padding: 1px 6px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink);
+  margin-left: 6px; font-weight: 600;
+}
+
+/* ===== Trust strip ===== */
+.trust-strip {
+  display: flex; gap: 18px; flex-wrap: wrap;
+  font-size: 11.5px; color: var(--ink-3);
+  margin-top: 22px;
+}
+.trust-strip .item { display: flex; align-items: center; gap: 7px; }
+.trust-strip svg { width: 13px; height: 13px; color: var(--ink-2); }
+
+/* ===== Order summary (right) ===== */
+.order-card {
+  position: sticky; top: 96px;
+  background:
+    radial-gradient(500px 300px at 100% 0%, var(--accent-soft), transparent 70%),
+    var(--paper);
+  border: 1px solid var(--accent-ring);
+  border-radius: 22px;
+  padding: 28px;
+}
+.order-eyebrow {
+  font-family: 'Newsreader', serif; font-style: italic;
+  font-size: 14px; color: var(--accent); margin-bottom: 8px;
+}
+.order-tier {
+  font-family: 'Newsreader', serif;
+  font-size: 30px; font-weight: 500; letter-spacing: -0.025em;
+  line-height: 1.05; margin-bottom: 8px;
+}
+.order-tier .it { font-style: italic; color: var(--accent); font-weight: 400; }
+.order-desc { font-size: 13px; color: var(--ink-2); margin-bottom: 22px; line-height: 1.55; }
+
+.trial-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 12px;
+  background: var(--accent-soft); color: var(--accent);
+  border: 1px solid var(--accent-ring);
+  border-radius: 999px;
+  font-size: 11.5px; font-weight: 500;
+  letter-spacing: 0.02em;
+  margin-bottom: 24px;
+}
+.trial-pill svg { width: 12px; height: 12px; }
+
+.includes {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 20px;
+}
+.includes .it { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; line-height: 1.55; }
+.includes .it .c {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent);
+  display: grid; place-items: center; flex-shrink: 0; margin-top: 2px;
+}
+.includes .it .c svg { width: 9px; height: 9px; }
+
+.price-rows { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+.p-row { display: flex; align-items: baseline; justify-content: space-between; font-size: 13.5px; color: var(--ink-2); }
+.p-row .v { font-variant-numeric: tabular-nums; }
+.p-row.discount { color: var(--live); }
+
+.total-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding-top: 14px; border-top: 1px solid var(--line); margin-bottom: 4px;
+}
+.total-row .label {
+  font-family: 'Newsreader', serif; font-style: italic;
+  font-size: 16px; color: var(--ink-2);
+}
+.total-row .v {
+  font-family: 'Newsreader', serif; font-size: 36px;
+  font-weight: 500; letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+}
+.total-row .v .cur { font-size: 18px; color: var(--ink-3); margin-left: 4px; }
+.total-sub { font-size: 11.5px; color: var(--ink-3); margin-bottom: 24px; line-height: 1.5; }
+
+.submit-btn {
+  width: 100%; padding: 16px 22px;
+  background: var(--accent); color: var(--accent-ink);
+  border: 0; border-radius: 14px;
+  font-size: 15px; font-weight: 600; cursor: pointer; font-family: inherit;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  margin-bottom: 14px;
+  transition: background .15s;
+}
+.submit-btn:hover { background: oklch(0.78 0.13 var(--accent-h)); }
+.submit-btn svg { width: 16px; height: 16px; }
+
+.fine { font-size: 11px; color: var(--ink-3); line-height: 1.55; text-align: center; }
+.fine a { color: var(--ink-2); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+
+.change-plan { font-size: 12px; color: var(--ink-3); margin-top: 14px; text-align: center; }
+.change-plan a { color: var(--accent); cursor: pointer; }
+.change-plan a:hover { text-decoration: underline; }
+
+.payment-logos {
+  display: flex; justify-content: center; gap: 10px; align-items: center;
+  margin-top: 20px; padding-top: 16px;
+  border-top: 1px dashed var(--line);
+  flex-wrap: wrap;
+}
+.payment-logos .logo {
+  font-family: 'Geist Mono', monospace; font-size: 10px;
+  padding: 3px 8px; border-radius: 4px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--line);
+  color: var(--ink-4); letter-spacing: 0.02em;
+}
