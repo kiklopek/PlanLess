@@ -95,6 +95,34 @@ Deno.serve(async (req) => {
     .map(s => `- ${s.name} (${s.duration_min} min, ${s.price ?? '?'} Kč)`)
     .join('\n') || 'Žádné služby momentálně k dispozici.'
 
+  // Customer memory: look up returning customer
+  const { data: existingCustomer } = await db
+    .from('customers')
+    .select('id, name, notes, vip_status, last_visit_date')
+    .eq('user_id', userId)
+    .eq('phone', from)
+    .maybeSingle()
+
+  const { data: recentBookings } = existingCustomer ? await db
+    .from('bookings')
+    .select('starts_at, services(name)')
+    .eq('user_id', userId)
+    .eq('customer_id', existingCustomer.id)
+    .order('starts_at', { ascending: false })
+    .limit(3) : { data: null }
+
+  const customerMemory = existingCustomer ? (() => {
+    const lines = [`Vracející se zákazník: ${existingCustomer.name || from}`]
+    if (existingCustomer.vip_status) lines.push('VIP zákazník — věnuj zvláštní pozornost.')
+    if (existingCustomer.notes) lines.push(`Poznámky o zákazníkovi: ${existingCustomer.notes}`)
+    if (existingCustomer.last_visit_date) lines.push(`Poslední návštěva: ${existingCustomer.last_visit_date}`)
+    if (recentBookings?.length) {
+      const svcNames = recentBookings.map(b => (b.services as { name: string } | null)?.name).filter(Boolean)
+      if (svcNames.length) lines.push(`Oblíbené služby: ${svcNames.join(', ')}`)
+    }
+    return lines.join('\n')
+  })() : null
+
   const extraContext = [
     settings.company_description ? `O nás: ${settings.company_description}` : null,
     settings.cancellation_policy ? `Storno podmínky: ${settings.cancellation_policy}` : null,
@@ -103,10 +131,12 @@ Deno.serve(async (req) => {
     `Nejdříve lze rezervovat: za ${settings.lead_time_minutes ?? 120} minut od teď.`,
     `Rezervace možná max. ${settings.max_booking_horizon_days ?? 60} dní dopředu.`,
     settings.escalation_phone ? `Přepojení na recepci: k dispozici` : null,
+    customerMemory,
   ].filter(Boolean).join('\n')
 
   const systemPrompt = `Jsi Nikola, AI recepční pro ${companyName}. Mluvíš česky, přátelsky a stručně.
 Tvůj úkol: pomoct volajícímu rezervovat termín nebo zodpovědět dotaz o salonu.
+${existingCustomer?.name ? `Zákazník se jmenuje ${existingCustomer.name} — oslovuj ho jménem.` : ''}
 
 Dostupné služby:
 ${servicesText}
@@ -332,7 +362,7 @@ async function finalizeCall(
   db: ReturnType<typeof adminClient>,
   callSid: string,
   userId: string,
-  _phone: string,
+  phone: string,
   state: ConvState,
   summary?: string | null,
   customerName?: string | null,
@@ -353,6 +383,17 @@ async function finalizeCall(
     booking_id:         bookingId ?? null,
     conversation_state: null,
   }).eq('twilio_call_sid', callSid)
+
+  // Auto-update customer notes with AI summary (append, don't overwrite)
+  if (summary && phone) {
+    const { data: cust } = await db.from('customers').select('id, notes').eq('user_id', userId).eq('phone', phone).maybeSingle()
+    if (cust) {
+      const date = new Date().toLocaleDateString('cs-CZ')
+      const newNote = `[${date}] ${summary}`
+      const updatedNotes = cust.notes ? `${cust.notes}\n${newNote}` : newNote
+      await db.from('customers').update({ notes: updatedNotes.slice(0, 2000) }).eq('id', cust.id)
+    }
+  }
 }
 
 function twimlSay(text: string, hangup = false) {

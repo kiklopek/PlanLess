@@ -3166,6 +3166,55 @@ const AnalyticsView = () => {
         </div>
       )}
 
+      {/* AI call analytics */}
+      {monthCalls.length > 0 && (
+        <div className="card lg">
+          <div className="eyebrow" style={{ marginBottom: 16 }}>AI Hovory — tento měsíc</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 20 }}>
+            {[
+              { label: 'Rezervováno AI', value: monthCalls.filter(c => c.status === 'booked').length, color: 'var(--accent)' },
+              { label: 'Informační dotazy', value: monthCalls.filter(c => c.status === 'info' || c.status === 'query').length, color: 'var(--ink-2)' },
+              { label: 'Zmeškané hovory', value: monthCalls.filter(c => c.status === 'missed').length, color: '#f87171' },
+              { label: 'Vyřešené', value: monthCalls.filter(c => c.status === 'resolved').length, color: 'var(--ink-3)' },
+            ].map(s => (
+              <div key={s.label} className="card thin" style={{ padding: '14px 16px' }}>
+                <div style={{ fontSize: 22, fontWeight: 700, color: s.color, marginBottom: 4 }}>{s.value}</div>
+                <div className="muted" style={{ fontSize: 12.5 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ height: 6, borderRadius: 3, background: 'var(--paper-2)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', background: 'var(--accent)', width: `${convRate}%`, borderRadius: 3, transition: 'width 0.5s' }} />
+          </div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Konverzní poměr: {convRate}% hovorů vedlo k rezervaci</div>
+        </div>
+      )}
+
+      {/* Staff performance */}
+      {STAFF.length > 1 && EVENTS.filter(e => e.staff_id).length > 0 && (
+        <div className="card lg">
+          <div className="eyebrow" style={{ marginBottom: 16 }}>Výkon týmu — tento měsíc</div>
+          <div className="col gap-2">
+            {STAFF.filter(s => s.is_active).map(s => {
+              const count = monthEvents.filter(e => e.staff_id === s.id).length;
+              const max = Math.max(...STAFF.filter(st => st.is_active).map(st => monthEvents.filter(e => e.staff_id === st.id).length), 1);
+              return (
+                <div key={s.id} className="row gap-3" style={{ alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
+                  <Avatar ini={s.initials || s.name[0]} size="sm" style={{ background: s.color }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>{s.name}</div>
+                    <div style={{ height: 5, borderRadius: 3, background: 'var(--paper-2)', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', borderRadius: 3, background: s.color ?? 'var(--accent)', width: `${Math.round((count / max) * 100)}%`, transition: 'width 0.4s' }} />
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 600, minWidth: 32, textAlign: 'right' }}>{count}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {monthCalls.length === 0 && monthEvents.length === 0 && (
         <div className="card lg" style={{ textAlign: 'center', padding: '48px 0' }}>
           <I.BarChart s={32} style={{ color: 'var(--ink-3)', marginBottom: 12 }} />
