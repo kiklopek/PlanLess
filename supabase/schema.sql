@@ -253,3 +253,9 @@ ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS staff_id uuid REFERENCES pu
 
 -- Phase E: service active status
 ALTER TABLE public.services ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
+
+-- Phase 1: AI Core — reminder + AI pause columns
+ALTER TABLE public.bookings         ADD COLUMN IF NOT EXISTS reminder_sent_at timestamptz;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS ai_paused        boolean DEFAULT false;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS reminder_enabled boolean DEFAULT true;
+CREATE INDEX IF NOT EXISTS bookings_reminder_idx ON public.bookings(starts_at) WHERE reminder_sent_at IS NULL;

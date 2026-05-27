@@ -1497,6 +1497,8 @@ const SetAI = ({ user, companySettings, onSettingsSaved }) => {
   const [tone, setTone] = useState(() => companySettings?.ai_tone ?? 'warm');
   const [autoBook, setAutoBook] = useState(() => companySettings?.ai_auto_book ?? true);
   const [confirmSms, setConfirmSms] = useState(() => companySettings?.ai_confirm_sms ?? true);
+  const [reminderEnabled, setReminderEnabled] = useState(() => companySettings?.reminder_enabled !== false);
+  const [aiPaused, setAiPaused] = useState(() => companySettings?.ai_paused ?? false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -1505,6 +1507,8 @@ const SetAI = ({ user, companySettings, onSettingsSaved }) => {
     setTone(companySettings.ai_tone ?? 'warm');
     setAutoBook(companySettings.ai_auto_book ?? true);
     setConfirmSms(companySettings.ai_confirm_sms ?? true);
+    setReminderEnabled(companySettings.reminder_enabled !== false);
+    setAiPaused(companySettings.ai_paused ?? false);
   }, [companySettings]);
 
   const companyName = companySettings?.company_name || 'váš salon';
@@ -1513,7 +1517,7 @@ const SetAI = ({ user, companySettings, onSettingsSaved }) => {
     if (!user) return;
     setSaving(true);
     try {
-      const saved = await saveCompanySettings(user.id, { ...(companySettings ?? {}), ai_voice: voice, ai_tone: tone, ai_auto_book: autoBook, ai_confirm_sms: confirmSms });
+      const saved = await saveCompanySettings(user.id, { ...(companySettings ?? {}), ai_voice: voice, ai_tone: tone, ai_auto_book: autoBook, ai_confirm_sms: confirmSms, reminder_enabled: reminderEnabled, ai_paused: aiPaused });
       onSettingsSaved?.(saved);
       toast.success('Nastavení AI uloženo.');
     } catch (e) {
@@ -1586,6 +1590,20 @@ const SetAI = ({ user, companySettings, onSettingsSaved }) => {
           <div className="desc">Po rezervaci automaticky odešle SMS s detaily termínu.</div>
         </div>
         <Switch on={confirmSms} onChange={setConfirmSms} />
+      </div>
+      <div className="form-row">
+        <div>
+          <div className="lbl">Připomínky rezervací</div>
+          <div className="desc">SMS zákazníkovi den před termínem.</div>
+        </div>
+        <Switch on={reminderEnabled} onChange={setReminderEnabled} />
+      </div>
+      <div className="form-row">
+        <div>
+          <div className="lbl">Pozastavit AI recepční</div>
+          <div className="desc">Hovory se přepojí přímo na váš telefon.</div>
+        </div>
+        <Switch on={aiPaused} onChange={setAiPaused} />
       </div>
       <div className="form-row">
         <div style={{ marginTop: 8 }}>
