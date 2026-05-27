@@ -144,6 +144,26 @@ const getInitials = (name) =>
   name.split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('');
 
 /* ============================================================
+   Loading skeleton
+   ============================================================ */
+const Skeleton = ({ h = 18, w = '100%', r = 8, style }) => (
+  <div style={{ height: h, width: w, borderRadius: r, background: 'var(--paper-2)', opacity: 0.7, animation: 'pulse 1.4s ease-in-out infinite', flexShrink: 0, ...style }} />
+);
+const SkeletonCard = ({ rows = 3 }) => (
+  <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 20 }}>
+    {Array.from({ length: rows }, (_, i) => <Skeleton key={i} h={14} w={i === 0 ? '60%' : i === rows - 1 ? '40%' : '85%'} />)}
+  </div>
+);
+const LoadingView = () => (
+  <div className="col gap-4" style={{ padding: '8px 0' }}>
+    <style>{`@keyframes pulse { 0%,100%{opacity:.5} 50%{opacity:1} }`}</style>
+    <SkeletonCard rows={2} />
+    <SkeletonCard rows={4} />
+    <SkeletonCard rows={3} />
+  </div>
+);
+
+/* ============================================================
    Atoms
    ============================================================ */
 const Avatar = ({ ini, size = '', vip = false }) => (
@@ -195,7 +215,7 @@ const NAV = [
 /* ============================================================
    Rail
    ============================================================ */
-const Rail = ({ nav, setNav, onSignOut }) => (
+const Rail = ({ nav, setNav, onSignOut, missedCount }) => (
   <aside className="rail">
     <div className="mark">P</div>
     <nav className="rail-nav">
@@ -204,7 +224,7 @@ const Rail = ({ nav, setNav, onSignOut }) => (
         return (
           <div key={n.id} className={cx('rail-item', nav === n.id && 'on')} onClick={() => setNav(n.id)}>
             <Ico s={18} />
-            {n.badge && <span className="dot" />}
+            {n.badge && missedCount > 0 && <span className="dot" />}
             <span className="lbl">{n.label}</span>
           </div>
         );
@@ -817,7 +837,7 @@ function getWeekFromDate(anchorDate) {
   };
 }
 
-const CalendarView = ({ onRefresh }) => {
+const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
   const { user } = useAuth();
   const [staff, setStaff] = useState('all');
   const [view, setView] = useState('week');
@@ -826,6 +846,15 @@ const CalendarView = ({ onRefresh }) => {
   const [selEvent, setSelEvent] = useState(null);
   const [bForm, setBForm] = useState({ date: '', time: '09:00', serviceId: '', note: '' });
   const [bSaving, setBSaving] = useState(false);
+
+  useEffect(() => {
+    if (prefillClient) {
+      const today = new Date().toISOString().slice(0, 10);
+      setBForm(f => ({ ...f, date: today, note: prefillClient.note || prefillClient.name || '' }));
+      setBookingModal(true);
+      onPrefillUsed?.();
+    }
+  }, [prefillClient]);
 
   const ROW_H = 60;
   const START_H = 9;
@@ -1151,7 +1180,7 @@ const ClientsView = ({ onRefresh, onNavigate }) => {
                     <Btn icon={I.Phone} size="sm">Zavolat</Btn>
                   </a>
                 )}
-                <Btn variant="accent" icon={I.Plus} size="sm" onClick={() => onNavigate('calendar')}>Rezervovat</Btn>
+                <Btn variant="accent" icon={I.Plus} size="sm" onClick={() => onNavigate('calendar', { note: client.name, phone: client.phone })}>Rezervovat</Btn>
                 <Btn variant="ghost" icon={I.X} size="sm" onClick={() => removeClient(client.phone)} />
               </div>
             </div>
@@ -1849,6 +1878,7 @@ export default function Dashboard() {
   const [tweaks, setTweaks] = useState({ accentHue: 45, density: 'compact' });
   const [tweaksActive, setTweaksActive] = useState(false);
   const [callSel, setCallSel] = useState(null);
+  const [calPrefill, setCalPrefill] = useState(null);
   const [dataVersion, setDataVersion] = useState(0);
   const [loading, setLoading] = useState(true);
   const searchRef = useRef(null);
@@ -1937,16 +1967,18 @@ export default function Dashboard() {
     <>
       <div className="ambient" />
       <div className="app">
-        <Rail nav={nav} setNav={setNav} onSignOut={signOut} />
+        <Rail nav={nav} setNav={setNav} onSignOut={signOut} missedCount={CALLS.filter(c => c.status === 'missed').length} />
         <div className="col-main">
           <Dock title={m.title} crumb={m.crumb} right={right} aiOn={aiOn} />
           <div className="view">
-            {nav === 'today'    && <TodayView setNav={setNav} setCallSel={setCallSel} />}
-            {nav === 'inbox'    && <InboxView selId={callSel} setSelId={setCallSel} onBookingCreated={refreshBookings} onNavCalendar={() => setNav('calendar')} />}
-            {nav === 'calendar' && <CalendarView onRefresh={refreshBookings} />}
-            {nav === 'clients'  && <ClientsView onRefresh={refreshCustomers} onNavigate={setNav} />}
-            {nav === 'services' && <ServicesView onRefresh={refreshServices} />}
-            {nav === 'settings' && <SettingsView />}
+            {loading ? <LoadingView /> : <>
+              {nav === 'today'    && <TodayView setNav={setNav} setCallSel={setCallSel} />}
+              {nav === 'inbox'    && <InboxView selId={callSel} setSelId={setCallSel} onBookingCreated={refreshBookings} onNavCalendar={() => setNav('calendar')} />}
+              {nav === 'calendar' && <CalendarView onRefresh={refreshBookings} prefillClient={calPrefill} onPrefillUsed={() => setCalPrefill(null)} />}
+              {nav === 'clients'  && <ClientsView onRefresh={refreshCustomers} onNavigate={(view, prefill) => { if (prefill) setCalPrefill(prefill); setNav(view); }} />}
+              {nav === 'services' && <ServicesView onRefresh={refreshServices} />}
+              {nav === 'settings' && <SettingsView />}
+            </>}
           </div>
         </div>
         <TweaksPanel active={tweaksActive} values={tweaks} onChange={setTw} />
