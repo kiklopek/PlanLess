@@ -680,6 +680,14 @@ export default function Onboarding() {
   const back = () => setStep(s => Math.max(0, s - 1));
   const goTo = (i) => setStep(i);
 
+  async function handleSkip() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) await saveCompanySettings(user.id, { onboarding_completed: true });
+    } catch { /* ignore */ }
+    navigate('/app');
+  }
+
   async function handleFinish() {
     setSaving(true);
     try {
@@ -718,7 +726,7 @@ export default function Onboarding() {
 
   const renderStep = () => {
     switch (step) {
-      case 0: return <StepWelcome onNext={next} onSkip={() => navigate('/app')} />;
+      case 0: return <StepWelcome onNext={next} onSkip={handleSkip} />;
       case 1: return <StepBusiness data={data} set={set} />;
       case 2: return <StepHours data={data} set={set} />;
       case 3: return <StepServices data={data} set={set} />;

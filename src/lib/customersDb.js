@@ -35,6 +35,7 @@ export async function fetchCustomers() {
       .select('id, phone, name, notes, vip_status, last_visit_date, created_at')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
+      .limit(500)
 
     if (error) throw error
     const rows = data ?? []

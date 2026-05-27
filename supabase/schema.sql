@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS public.company_settings (
   postal_code text,
   country text,
   ai_notes text,
+  company_description text,
   ai_voice text DEFAULT 'nikola',
   ai_tone text DEFAULT 'warm',
   ai_auto_book boolean DEFAULT true,

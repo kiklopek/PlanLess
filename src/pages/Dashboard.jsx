@@ -1751,28 +1751,58 @@ const SetBilling = () => {
 
 const SetCompany = ({ user, companySettings, onSettingsSaved }) => {
   const [form, setForm] = useState({
-    company_name:  companySettings?.company_name  ?? '',
-    public_phone:  companySettings?.public_phone  ?? '',
-    public_email:  companySettings?.public_email  ?? '',
-    website_url:   companySettings?.website_url   ?? '',
-    address_line1: companySettings?.address_line1 ?? '',
-    city:          companySettings?.city          ?? '',
-    postal_code:   companySettings?.postal_code   ?? '',
+    company_name:        companySettings?.company_name        ?? '',
+    public_phone:        companySettings?.public_phone        ?? '',
+    public_email:        companySettings?.public_email        ?? '',
+    website_url:         companySettings?.website_url         ?? '',
+    address_line1:       companySettings?.address_line1       ?? '',
+    city:                companySettings?.city                ?? '',
+    postal_code:         companySettings?.postal_code         ?? '',
+    company_description: companySettings?.company_description ?? '',
   });
   const [saving, setSaving] = useState(false);
+  const [fileLoading, setFileLoading] = useState(false);
+  const fileRef = useRef(null);
 
   useEffect(() => {
     if (!companySettings) return;
     setForm({
-      company_name:  companySettings.company_name  ?? '',
-      public_phone:  companySettings.public_phone  ?? '',
-      public_email:  companySettings.public_email  ?? '',
-      website_url:   companySettings.website_url   ?? '',
-      address_line1: companySettings.address_line1 ?? '',
-      city:          companySettings.city          ?? '',
-      postal_code:   companySettings.postal_code   ?? '',
+      company_name:        companySettings.company_name        ?? '',
+      public_phone:        companySettings.public_phone        ?? '',
+      public_email:        companySettings.public_email        ?? '',
+      website_url:         companySettings.website_url         ?? '',
+      address_line1:       companySettings.address_line1       ?? '',
+      city:                companySettings.city                ?? '',
+      postal_code:         companySettings.postal_code         ?? '',
+      company_description: companySettings.company_description ?? '',
     });
   }, [companySettings]);
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileLoading(true);
+    try {
+      if (file.name.endsWith('.txt')) {
+        const text = await file.text();
+        setForm(p => ({ ...p, company_description: text.trim() }));
+        toast.success('Textový soubor načten.');
+      } else if (file.name.endsWith('.docx')) {
+        const mammoth = (await import('mammoth')).default;
+        const buf = await file.arrayBuffer();
+        const { value } = await mammoth.extractRawText({ arrayBuffer: buf });
+        setForm(p => ({ ...p, company_description: value.trim() }));
+        toast.success('Dokument načten a text extrahován.');
+      } else {
+        toast.error('Podporované formáty: .txt, .docx');
+      }
+    } catch (err) {
+      toast.error('Nepodařilo se načíst soubor: ' + err.message);
+    } finally {
+      setFileLoading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
 
   const f = (key) => (e) => setForm(p => ({ ...p, [key]: e.target.value }));
   const save = async () => {
@@ -1848,6 +1878,30 @@ const SetCompany = ({ user, companySettings, onSettingsSaved }) => {
             <div className="field" style={{ padding: '8px 12px' }}>
               <input placeholder="PSČ" value={form.postal_code} onChange={f('postal_code')} style={inputStyle} />
             </div>
+          </div>
+        </div>
+      </div>
+      <div className="form-row" style={{ alignItems: 'flex-start' }}>
+        <div>
+          <div className="lbl">Popis firmy pro AI</div>
+          <div className="desc">Nahrjte Word dokument nebo vložte text — Nikola ho použije při odpovídání klientům. Čím víc ví, tím lépe poradí.</div>
+        </div>
+        <div className="col gap-2" style={{ flex: 1 }}>
+          <textarea
+            value={form.company_description}
+            onChange={e => setForm(p => ({ ...p, company_description: e.target.value }))}
+            placeholder="Popište svou firmu, speciality, ceny, pravidla objednávání, co dělat v případě alergie, jak probíhá konzultace…"
+            rows={6}
+            style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--paper-2)', color: 'var(--ink)', fontFamily: 'inherit', fontSize: 13, lineHeight: 1.6, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }}
+          />
+          <div className="row gap-2" style={{ alignItems: 'center' }}>
+            <input ref={fileRef} type="file" accept=".txt,.docx" style={{ display: 'none' }} onChange={handleFileUpload} />
+            <Btn variant="ghost" size="sm" icon={I.Plus} onClick={() => fileRef.current?.click()} disabled={fileLoading}>
+              {fileLoading ? 'Načítám…' : 'Nahrát .txt nebo .docx'}
+            </Btn>
+            {form.company_description && (
+              <span className="muted" style={{ fontSize: 12 }}>{form.company_description.length} znaků</span>
+            )}
           </div>
         </div>
       </div>

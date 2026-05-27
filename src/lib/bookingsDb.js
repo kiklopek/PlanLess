@@ -26,16 +26,22 @@ function upsertBookingCache(row) {
   setCachedBookings(next)
 }
 
-export async function fetchBookings() {
-  if (cacheIsFresh()) return cachedBookings.data
-  const { data, error } = await supabase
+export async function fetchBookings({ from, to } = {}) {
+  if (!from && !to && cacheIsFresh()) return cachedBookings.data
+
+  let query = supabase
     .from('bookings')
     .select('*')
     .order('starts_at', { ascending: true })
 
+  if (from) query = query.gte('starts_at', from)
+  if (to)   query = query.lt('starts_at', to)
+  if (!from && !to) query = query.limit(500)
+
+  const { data, error } = await query
   if (error) throw error
   const rows = data ?? []
-  setCachedBookings(rows)
+  if (!from && !to) setCachedBookings(rows)
   return rows
 }
 

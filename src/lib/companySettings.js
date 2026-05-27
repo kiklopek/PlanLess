@@ -12,6 +12,7 @@ export const DEFAULT_WORKING_HOURS = {
 
 export const DEFAULT_COMPANY_SETTINGS = {
   company_name: '',
+  company_description: null,
   legal_name: null,
   company_id: null,
   vat_id: null,
