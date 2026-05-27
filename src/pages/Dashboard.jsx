@@ -3572,9 +3572,19 @@ const SettingsView = () => {
   const [tab, setTab] = useState('company');
   const [companySettings, setCompanySettings] = useState(null);
 
+  const handleSettingsSaved = useCallback((s) => {
+    setCompanySettings(s);
+    if (s?.working_hours) COMPANY_WH = s.working_hours;
+    if (s?.webhook_url !== undefined) WEBHOOK_URL = s.webhook_url ?? null;
+  }, []);
+
   useEffect(() => {
     if (!user) return;
-    getCompanySettings(user.id).then(s => setCompanySettings(s)).catch(() => {});
+    getCompanySettings(user.id).then(s => {
+      setCompanySettings(s);
+      if (s?.working_hours) COMPANY_WH = s.working_hours;
+      if (s?.webhook_url !== undefined) WEBHOOK_URL = s.webhook_url ?? null;
+    }).catch(() => {});
   }, [user]);
 
   const tabs = [
@@ -3601,12 +3611,12 @@ const SettingsView = () => {
         })}
       </nav>
       <div>
-        {tab === 'company'      && <SetCompany user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
-        {tab === 'ai'           && <SetAI user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
-        {tab === 'hours'        && <SetHours user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
-        {tab === 'rules'        && <SetRules user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
+        {tab === 'company'      && <SetCompany user={user} companySettings={companySettings} onSettingsSaved={handleSettingsSaved} />}
+        {tab === 'ai'           && <SetAI user={user} companySettings={companySettings} onSettingsSaved={handleSettingsSaved} />}
+        {tab === 'hours'        && <SetHours user={user} companySettings={companySettings} onSettingsSaved={handleSettingsSaved} />}
+        {tab === 'rules'        && <SetRules user={user} companySettings={companySettings} onSettingsSaved={handleSettingsSaved} />}
         {tab === 'staff'        && <SetStaff user={user} />}
-        {tab === 'integrations' && <SetInteg user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
+        {tab === 'integrations' && <SetInteg user={user} companySettings={companySettings} onSettingsSaved={handleSettingsSaved} />}
         {tab === 'billing'      && <SetBilling />}
         {tab === 'account'      && <SetAccount user={user} />}
       </div>
