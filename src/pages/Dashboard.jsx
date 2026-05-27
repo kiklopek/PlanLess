@@ -183,10 +183,14 @@ function mapBookingToEvent(r) {
     t: r.customers?.name || r.note || 'Rezervace',
     who: r.customers?.name || r.customers?.phone || '—',
     starts_at: r.starts_at,
+    ends_at: r.ends_at,
     staff_id: r.staff_id ?? null,
     customer_id: r.customer_id ?? null,
     service_id: r.service_id ?? null,
     service_name: r.services?.name ?? null,
+    price: r.services?.price != null ? parseFloat(r.services.price) : null,
+    reminder_sent_at: r.reminder_sent_at ?? null,
+    customer_phone: r.customers?.phone ?? null,
   };
 }
 
@@ -343,9 +347,10 @@ const Dock = ({ title, crumb, right, aiOn, onToggleAi }) => (
 /* ============================================================
    Today view
    ============================================================ */
-const TodayView = ({ setNav, setCallSel, onNavCalendar, onRefresh, aiOn }) => {
+const TodayView = ({ setNav, setCallSel, onNavCalendar, onRefresh, aiOn, companySettings, onSendReminder }) => {
   const week = getCurrentWeek();
   const [menuId, setMenuId] = useState(null);
+  const [remindedIds, setRemindedIds] = useState(new Set());
   const liveCall = CALLS.find((c) => c.live);
   const nowH = new Date().getHours() + new Date().getMinutes() / 60;
   const upcoming = EVENTS.filter((e) => e.col === week.todayCol && e.s >= nowH).slice(0, 4);
@@ -358,6 +363,8 @@ const TodayView = ({ setNav, setCallSel, onNavCalendar, onRefresh, aiOn }) => {
   const booked = todayCalls.filter(c => c.status === 'booked').length;
   const missed = todayCalls.filter(c => c.status === 'missed').length;
   const attn = CALLS.filter((c) => ['missed', 'resched'].includes(c.status));
+  const todayRevenue = EVENTS.filter(e => e.col === week.todayCol && e.price != null)
+    .reduce((sum, e) => sum + (e.price || 0), 0);
 
   return (
     <div className="col gap-6">
@@ -399,6 +406,12 @@ const TodayView = ({ setNav, setCallSel, onNavCalendar, onRefresh, aiOn }) => {
             <div className="n">{attn.length}</div>
             <div className="l">k pozornosti</div>
           </div>
+          {todayRevenue > 0 && (
+            <div className="kpi">
+              <div className="n" style={{ fontSize: todayRevenue >= 10000 ? 15 : undefined }}>{fmtPrice(todayRevenue)}</div>
+              <div className="l">tržby dnes</div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -440,22 +453,41 @@ const TodayView = ({ setNav, setCallSel, onNavCalendar, onRefresh, aiOn }) => {
             {upcoming.length === 0 && (
               <div className="muted" style={{ fontSize: 13, padding: '16px 0', textAlign: 'center' }}>Dnes žádné další rezervace.</div>
             )}
-            {upcoming.map((e, i) => (
-              <div key={i} className="row gap-3" style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', alignItems: 'center', position: 'relative' }}>
-                <div className="mono" style={{ fontSize: 12.5, color: 'var(--accent)', minWidth: 64 }}>{fmtTime(e.s)}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 500 }}>{e.t}</div>
-                  <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{e.who} · {fmtTime(e.e)} konec</div>
-                </div>
-                <Btn variant="ghost" size="sm" icon={I.MoreH} onClick={() => setMenuId(menuId === e.id ? null : e.id)} />
-                {menuId === e.id && (
-                  <div className="card" style={{ position: 'absolute', right: 0, top: '100%', zIndex: 30, padding: '6px 0', minWidth: 180, boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}>
-                    <button onClick={() => { setNav('calendar'); setMenuId(null); }} style={{ display: 'block', width: '100%', padding: '8px 16px', background: 'none', border: 'none', color: 'var(--ink)', fontSize: 13, textAlign: 'left', cursor: 'pointer' }}>Otevřít v kalendáři</button>
-                    <button onClick={async () => { try { await deleteBooking(e.id); toast.success('Rezervace zrušena.'); setMenuId(null); onRefresh?.(); } catch { toast.error('Chyba při rušení.'); } }} style={{ display: 'block', width: '100%', padding: '8px 16px', background: 'none', border: 'none', color: '#f87171', fontSize: 13, textAlign: 'left', cursor: 'pointer' }}>Zrušit rezervaci</button>
+            {upcoming.map((e, i) => {
+              const canRemind = e.customer_phone && !e.reminder_sent_at && !remindedIds.has(e.id);
+              return (
+                <div key={i} className="row gap-3" style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', alignItems: 'center', position: 'relative' }}>
+                  <div className="mono" style={{ fontSize: 12.5, color: 'var(--accent)', minWidth: 64 }}>{fmtTime(e.s)}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 500 }}>{e.t}</div>
+                    <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                      {e.who} · {fmtTime(e.e)} konec
+                      {e.price != null && <span style={{ marginLeft: 8, color: 'var(--accent)' }}>{fmtPrice(e.price)}</span>}
+                    </div>
                   </div>
-                )}
-              </div>
-            ))}
+                  <div className="row gap-1">
+                    {canRemind && (
+                      <Btn variant="ghost" size="sm" icon={I.Bell} title="Odeslat SMS připomínku klientovi" onClick={async () => {
+                        try {
+                          await onSendReminder?.(e);
+                          setRemindedIds(s => new Set([...s, e.id]));
+                        } catch {}
+                      }} />
+                    )}
+                    {e.reminder_sent_at || remindedIds.has(e.id) ? (
+                      <div title="Připomínka odeslána" style={{ width: 28, height: 28, display: 'grid', placeItems: 'center', color: 'var(--ink-3)' }}><I.Bell s={13} /></div>
+                    ) : null}
+                    <Btn variant="ghost" size="sm" icon={I.MoreH} onClick={() => setMenuId(menuId === e.id ? null : e.id)} />
+                  </div>
+                  {menuId === e.id && (
+                    <div className="card" style={{ position: 'absolute', right: 0, top: '100%', zIndex: 30, padding: '6px 0', minWidth: 180, boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}>
+                      <button onClick={() => { setNav('calendar'); setMenuId(null); }} style={{ display: 'block', width: '100%', padding: '8px 16px', background: 'none', border: 'none', color: 'var(--ink)', fontSize: 13, textAlign: 'left', cursor: 'pointer' }}>Otevřít v kalendáři</button>
+                      <button onClick={async () => { try { await deleteBooking(e.id); toast.success('Rezervace zrušena.'); setMenuId(null); onRefresh?.(); } catch { toast.error('Chyba při rušení.'); } }} style={{ display: 'block', width: '100%', padding: '8px 16px', background: 'none', border: 'none', color: '#f87171', fontSize: 13, textAlign: 'left', cursor: 'pointer' }}>Zrušit rezervaci</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -4030,6 +4062,26 @@ export default function Dashboard() {
     setDataVersion(v => v + 1);
   }, []);
 
+  const handleSendReminder = useCallback(async (event) => {
+    if (!event.customer_phone) { toast.error('Klient nemá telefonní číslo.'); return; }
+    const companyName = mainSettings?.company_name || '';
+    const dateLabel = new Date(event.starts_at).toLocaleString('cs-CZ', {
+      weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+    });
+    const svcPart = event.service_name ? `${event.service_name} ` : '';
+    const companyPart = companyName ? ` — ${companyName}` : '';
+    const msg = `Připomínka: ${svcPart}${dateLabel}. Těšíme se!${companyPart}`;
+    await createFollowup({
+      customer_id: event.customer_id ?? null,
+      channel: 'sms',
+      message: msg,
+      metadata: { to: event.customer_phone, booking_id: event.id, type: 'reminder' },
+    });
+    EVENTS = EVENTS.map(e => e.id === event.id ? { ...e, reminder_sent_at: new Date().toISOString() } : e);
+    setDataVersion(v => v + 1);
+    toast.success('Připomínka odeslána do fronty.');
+  }, [mainSettings]);
+
   const toggleAi = useCallback(async () => {
     if (!user || !mainSettings) return;
     const next = { ...mainSettings, ai_paused: !mainSettings.ai_paused };
@@ -4058,7 +4110,7 @@ export default function Dashboard() {
           <Dock title={m.title} crumb={m.crumb} right={right} aiOn={aiOn} onToggleAi={toggleAi} />
           <div className="view">
             {loading ? <LoadingView /> : <>
-              {nav === 'today'     && <TodayView setNav={setNav} setCallSel={setCallSel} onRefresh={refreshBookings} aiOn={aiOn} />}
+              {nav === 'today'     && <TodayView setNav={setNav} setCallSel={setCallSel} onRefresh={refreshBookings} aiOn={aiOn} companySettings={mainSettings} onSendReminder={handleSendReminder} />}
               {nav === 'inbox'     && <InboxView selId={callSel} setSelId={setCallSel} onBookingCreated={refreshBookings} onNavCalendar={() => setNav('calendar')} dataVersion={dataVersion} onDemoSeeded={async () => { await Promise.all([refreshCalls(), refreshBookings(), refreshCustomers()]); setDataVersion(v => v + 1); }} />}
               {nav === 'calendar'  && <CalendarView onRefresh={refreshBookings} onRefreshBlocks={refreshBlocks} prefillClient={calPrefill} onPrefillUsed={() => setCalPrefill(null)} />}
               {nav === 'clients'   && <ClientsView onRefresh={refreshCustomers} onNavigate={(view, prefill) => { if (prefill) setCalPrefill(prefill); setNav(view); }} />}
