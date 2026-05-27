@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Icons as I, Wave } from '../components/Icons.jsx';
 import '../styles/globals.css';
 import './Dashboard.css';
@@ -1820,14 +1820,23 @@ const TweaksPanel = ({ active, values, onChange }) => {
 /* ============================================================
    View metadata
    ============================================================ */
-const VIEW_META = {
-  today:    { title: 'Dnes',      crumb: 'Úterý 22. dubna · živý přehled' },
-  inbox:    { title: 'Hovory',    crumb: 'Všechny příchozí — dnes, včera, dřív' },
-  calendar: { title: 'Kalendář',  crumb: 'Týdenní rozvrh rezervací' },
-  clients:  { title: 'Klienti',   crumb: '248 lidí · 19 nových tento měsíc' },
-  services: { title: 'Služby',    crumb: 'Katalog a ceny' },
-  settings: { title: 'Nastavení', crumb: 'Konfigurace AI, provozu a integrací' },
-};
+function getViewMeta(nav) {
+  const todayStr = new Date().toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'long' });
+  const missedToday = CALLS.filter(c => {
+    if (c.status !== 'missed' || !c.created_at) return false;
+    return new Date(c.created_at).toDateString() === new Date().toDateString();
+  }).length;
+  const crumbs = {
+    today:    `${todayStr}${missedToday > 0 ? ` · ${missedToday} zmeškaných` : ' · žádné zmešk.'}`,
+    inbox:    `Všechny příchozí · ${CALLS.length} celkem`,
+    calendar: `Rezervace · ${EVENTS.length} celkem`,
+    clients:  `${CLIENTS.length} klientů celkem`,
+    services: `${SERVICES.length} služeb · katalog a ceny`,
+    settings: 'Konfigurace AI, provozu a integrací',
+  };
+  const titles = { today: 'Dnes', inbox: 'Hovory', calendar: 'Kalendář', clients: 'Klienti', services: 'Služby', settings: 'Nastavení' };
+  return { title: titles[nav] ?? nav, crumb: crumbs[nav] ?? '' };
+}
 
 /* ============================================================
    Dashboard (main export)
@@ -1842,6 +1851,8 @@ export default function Dashboard() {
   const [tweaksActive, setTweaksActive] = useState(false);
   const [callSel, setCallSel] = useState(null);
   const [dataVersion, setDataVersion] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const searchRef = useRef(null);
 
   useEffect(() => {
     try { localStorage.setItem('pl:nav', nav); } catch { /* ignore */ }
@@ -1872,23 +1883,25 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!user) return;
-    const week = getCurrentWeek();
+    setLoading(true);
     Promise.allSettled([
       fetchCalls().then(rows => { CALLS = rows.map(mapCallRow); }),
       fetchCustomers().then(rows => { CLIENTS = rows.map(mapCustomerRow); }),
       fetchServices().then(rows => { SERVICES = rows.map(mapServiceRow); }),
-      fetchBookings().then(rows => {
-        const weekEnd = new Date(week.weekStart);
-        weekEnd.setDate(weekEnd.getDate() + 7);
-        EVENTS = rows
-          .filter(r => {
-            const s = new Date(r.starts_at);
-            return s >= week.weekStart && s < weekEnd;
-          })
-          .map(mapBookingToEvent);
-      }),
-    ]).then(() => setDataVersion(v => v + 1));
+      fetchBookings().then(rows => { EVENTS = rows.map(mapBookingToEvent); }),
+    ]).then(() => { setLoading(false); setDataVersion(v => v + 1); });
   }, [user]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   const refreshServices = useCallback(async () => {
     SERVICES = (await fetchServices()).map(mapServiceRow);
@@ -1911,12 +1924,12 @@ export default function Dashboard() {
     setDataVersion(v => v + 1);
   }, []);
 
-  const m = VIEW_META[nav];
+  const m = getViewMeta(nav);
 
   const right = (
     <div className="field" style={{ width: 280, maxWidth: '40vw' }}>
-      <I.Search />
-      <input placeholder="Hledat klienta, službu, číslo…" />
+      {loading ? <I.Clock s={14} style={{ opacity: 0.4 }} /> : <I.Search />}
+      <input ref={searchRef} placeholder="Hledat klienta, službu, číslo…" />
       <span className="kbd">⌘K</span>
     </div>
   );
