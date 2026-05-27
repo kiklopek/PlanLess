@@ -18,11 +18,13 @@ export default function ProtectedRoute({ children }) {
       return
     }
 
+    const devSkip = import.meta.env.VITE_DEV_SKIP_PAYMENT === 'true'
+
     getCompanySettings(user.id)
       .then(async settings => {
         if (!settings || !settings.onboarding_completed) {
           setDestination('/onboarding')
-        } else {
+        } else if (!devSkip) {
           const { data } = await supabase.from('profiles').select('is_subscribed').eq('id', user.id).maybeSingle()
           if (!data?.is_subscribed) setDestination('/payment')
         }
