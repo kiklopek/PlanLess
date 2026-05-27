@@ -109,8 +109,13 @@ function getTodayLabel() {
 function mapCallRow(r) {
   const d = r.created_at ? new Date(r.created_at) : new Date();
   const isLive = r.status === 'live';
-  const turns = (r.conversation_state?.turns ?? []).filter(t => !t.content?.startsWith('[systém:'));
-  const lastAiTurn = [...turns].reverse().find(t => t.role === 'assistant');
+  const rawTurns = (r.conversation_state?.turns ?? []).filter(t => !t.content?.startsWith('[systém:'));
+  const lastAiTurn = [...rawTurns].reverse().find(t => t.role === 'assistant');
+  const turns = rawTurns.map((t, i) => ({
+    who: t.role === 'assistant' ? 'ai' : 'client',
+    text: t.content || t.text || '',
+    t: t.t ?? '',
+  }));
   return {
     id: r.id,
     who: r.customer_name || r.customer_phone || 'Neznámé číslo',
@@ -127,8 +132,8 @@ function mapCallRow(r) {
     created_at: r.created_at,
     recording_url: r.recording_url || null,
     outcome: {
-      kind: r.status,
-      label: r.status === 'booked' ? 'Rezervace vytvořena' : r.status === 'missed' ? 'Zmeškaný hovor' : isLive ? 'Probíhá hovor' : 'Dotaz zákazníka',
+      kind: (r.status === 'booked' || r.status === 'resched') ? 'booking' : r.status,
+      label: r.status === 'booked' ? 'Rezervace vytvořena' : r.status === 'resched' ? 'Termín přesunut' : r.status === 'missed' ? 'Zmeškaný hovor' : isLive ? 'Probíhá hovor' : 'Dotaz zákazníka',
       sub: r.summary || '',
       service: r.bookings?.services?.name ?? null,
       when: r.bookings?.starts_at ? new Date(r.bookings.starts_at).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : null,
@@ -568,6 +573,7 @@ const CallDetail = ({ call, onBookingCreated, onNavCalendar }) => {
 
   if (!call) return null;
   const o = call.outcome;
+  const linkedCustomer = call.phone ? CLIENTS.find(c => c.phone === call.phone) : null;
 
   async function handleBookSlot(slot) {
     const svc = SERVICES.find(s => s.id === selectedServiceId);
@@ -695,6 +701,13 @@ const CallDetail = ({ call, onBookingCreated, onNavCalendar }) => {
               {o.staff   && (<><div className="k">Kolega/yně</div><div className="v">{o.staff}</div></>)}
               {o.price   && (<><div className="k">Cena</div><div className="v mono">{fmtPrice(o.price)}</div></>)}
             </div>
+          </div>
+        )}
+
+        {linkedCustomer?.note && (
+          <div style={{ marginBottom: 28 }}>
+            <div className="eyebrow" style={{ marginBottom: 14 }}>Poznámky o zákazníkovi</div>
+            <div style={{ fontSize: 13.5, color: 'var(--ink-2)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>{linkedCustomer.note}</div>
           </div>
         )}
 
