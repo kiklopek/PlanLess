@@ -850,9 +850,85 @@ const TodayHero = () => {
   );
 };
 
-const InboxView = ({ selId, setSelId, onBookingCreated, onNavCalendar, dataVersion }) => {
+const InboxView = ({ selId, setSelId, onBookingCreated, onNavCalendar, dataVersion, onDemoSeeded }) => {
+  const { user } = useAuth();
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [seedingDemo, setSeedingDemo] = useState(false);
+
+  const seedDemoCall = async () => {
+    if (!user) return;
+    setSeedingDemo(true);
+    try {
+      // 1. Upsert demo customer
+      const { data: cust } = await supabase
+        .from('customers')
+        .upsert(
+          { user_id: user.id, phone: '+420777111222', name: 'Jana Nováková', notes: `[${new Date().toLocaleDateString('cs-CZ')}] Jana zavolala kvůli rezervaci střihu a barvy. Preferuje světlé odlesky, poslední barvení bylo před 3 měsíci.`, vip_status: false },
+          { onConflict: 'user_id,phone' }
+        ).select('id').single();
+
+      // 2. Find a service to book (use first active one)
+      const svc = SERVICES.find(s => s.on !== false) ?? null;
+      const durationMin = svc?.d ?? 90;
+
+      // 3. Create a booking for tomorrow at 10:00
+      const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(10, 0, 0, 0);
+      const endsAt = new Date(tomorrow.getTime() + durationMin * 60000);
+      let bookingId = null;
+      const { data: booking } = await supabase
+        .from('bookings')
+        .insert({
+          user_id: user.id,
+          service_id: svc?.id ?? null,
+          customer_id: cust?.id ?? null,
+          starts_at: tomorrow.toISOString(),
+          ends_at: endsAt.toISOString(),
+          note: 'Rezervace přes AI recepční (demo)',
+          status: 'confirmed',
+        })
+        .select('id')
+        .single();
+      bookingId = booking?.id ?? null;
+
+      // 4. Build realistic transcript
+      const svcName = svc?.name ?? 'střih a barvení';
+      const dateStr = tomorrow.toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'long' });
+      const turns = [
+        { role: 'user',      content: `Dobrý den, chtěla bych se objednat na ${svcName}.` },
+        { role: 'assistant', content: `Dobrý den! Ráda vám pomůžu s rezervací. Jak se jmenujete?` },
+        { role: 'user',      content: 'Jana Nováková.' },
+        { role: 'assistant', content: `Děkuji, Jano! Kdy by vám to vyhovovalo?` },
+        { role: 'user',      content: `Mohlo by to být ${dateStr} dopoledne, třeba v 10 hodin?` },
+        { role: 'assistant', content: `${dateStr} v 10:00 je volné. Mám vás zapsat na ${svcName}? Celková doba bude přibližně ${durationMin} minut.` },
+        { role: 'user',      content: 'Ano, prosím. A preferuji světlé odlesky.' },
+        { role: 'assistant', content: `Skvěle, Jano! Zarezervovala jsem vám termín na ${dateStr} v 10:00 na ${svcName}. Poznamenala jsem si vaši preferenci světlých odlesků. Těšíme se na vás!` },
+      ];
+      const transcript = turns.map(t => `${t.role === 'user' ? 'Zákazník' : 'Nikola'}: ${t.content}`).join('\n');
+
+      // 5. Insert call record
+      await supabase.from('calls').insert({
+        user_id: user.id,
+        customer_phone: '+420777111222',
+        customer_name: 'Jana Nováková',
+        service_id: svc?.id ?? null,
+        booking_id: bookingId,
+        status: 'booked',
+        summary: `Jana Nováková se objednala na ${svcName} — ${dateStr} v 10:00. Preferuje světlé odlesky, poslední barvení před 3 měsíci.`,
+        transcript_full: transcript,
+        conversation_state: { turns, customerName: 'Jana Nováková', customerPhone: '+420777111222', userId: user.id, companyName: '', callSid: '' },
+      });
+
+      toast.success('Demo hovor vytvořen! Obnovuji data…');
+      await onDemoSeeded?.();
+    } catch (e) {
+      toast.error(e.message || 'Chyba při vytváření dema.');
+    } finally {
+      setSeedingDemo(false);
+    }
+  };
+
   const filtered = useMemo(() => {
     let list = CALLS;
     if (filter === 'attn') list = list.filter((c) => ['missed', 'resched', 'cancel', 'query'].includes(c.status));
@@ -885,6 +961,9 @@ const InboxView = ({ selId, setSelId, onBookingCreated, onNavCalendar, dataVersi
             value={filter}
             onChange={setFilter}
           />
+          <Btn variant="ghost" size="sm" onClick={seedDemoCall} disabled={seedingDemo}>
+            {seedingDemo ? 'Vytvářím…' : '✦ Demo hovor'}
+          </Btn>
         </div>
       </div>
 
@@ -3832,7 +3911,7 @@ export default function Dashboard() {
           <div className="view">
             {loading ? <LoadingView /> : <>
               {nav === 'today'     && <TodayView setNav={setNav} setCallSel={setCallSel} onRefresh={refreshBookings} />}
-              {nav === 'inbox'     && <InboxView selId={callSel} setSelId={setCallSel} onBookingCreated={refreshBookings} onNavCalendar={() => setNav('calendar')} dataVersion={dataVersion} />}
+              {nav === 'inbox'     && <InboxView selId={callSel} setSelId={setCallSel} onBookingCreated={refreshBookings} onNavCalendar={() => setNav('calendar')} dataVersion={dataVersion} onDemoSeeded={async () => { await Promise.all([refreshCalls(), refreshBookings(), refreshCustomers()]); setDataVersion(v => v + 1); }} />}
               {nav === 'calendar'  && <CalendarView onRefresh={refreshBookings} onRefreshBlocks={refreshBlocks} prefillClient={calPrefill} onPrefillUsed={() => setCalPrefill(null)} />}
               {nav === 'clients'   && <ClientsView onRefresh={refreshCustomers} onNavigate={(view, prefill) => { if (prefill) setCalPrefill(prefill); setNav(view); }} />}
               {nav === 'services'  && <ServicesView onRefresh={refreshServices} />}
