@@ -47,10 +47,11 @@ Deno.serve(async (req) => {
   const result = await resp.json()
   if (!resp.ok) {
     if (followup_id) {
+      const { data: cur } = await db.from('followups').select('attempt_count').eq('id', followup_id).single()
       await db.from('followups').update({
         status: 'failed',
         last_error: result.message ?? 'Twilio error',
-        attempt_count: db.rpc('increment', { table: 'followups', id: followup_id, col: 'attempt_count' }),
+        attempt_count: (cur?.attempt_count ?? 0) + 1,
       }).eq('id', followup_id)
     }
     return errorResponse(result.message ?? 'SMS se nepodařilo odeslat', 502)

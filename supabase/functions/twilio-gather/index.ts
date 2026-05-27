@@ -161,10 +161,19 @@ Nebo při potvrzené rezervaci:
     const endsAt = new Date(startsAt.getTime() + (svc?.duration_min ?? 60) * 60000)
 
     if (!isNaN(startsAt.getTime())) {
+      // Upsert customer by phone so we have a customer_id FK
+      const { data: cust } = await db.from('customers')
+        .upsert(
+          { user_id: userId, phone: from, name: action.booking.customer_name ?? null },
+          { onConflict: 'user_id,phone' },
+        )
+        .select('id')
+        .single()
+
       await db.from('bookings').insert({
         user_id: userId,
         service_id: svc?.id ?? null,
-        customer_phone: from,
+        customer_id: cust?.id ?? null,
         starts_at: startsAt.toISOString(),
         ends_at: endsAt.toISOString(),
         note: `Rezervace přes AI recepční`,

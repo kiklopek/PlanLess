@@ -4,6 +4,7 @@ import '../styles/globals.css';
 import './Dashboard.css';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { fetchCalls, updateCallStatus, clearCachedCalls } from '../lib/callsDb.js';
+import { fetchStaff, createStaff, updateStaff, deleteStaff, clearCachedStaff } from '../lib/staffDb.js';
 import { fetchCustomers, upsertCustomer, deleteCustomerByPhone } from '../lib/customersDb.js';
 import { fetchServices, createService, updateService, deleteService } from '../lib/servicesDb.js';
 import { fetchBookings, createBooking, deleteBooking, clearCachedBookings } from '../lib/bookingsDb.js';
@@ -20,6 +21,7 @@ let CALLS = [];
 let CLIENTS = [];
 let SERVICES = [];
 let EVENTS = [];
+let STAFF = [];
 
 /* ── Week helpers ── */
 const CZ_DAYS = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
@@ -66,12 +68,13 @@ function getTodayLabel() {
 }
 
 function mapCallRow(r) {
+  const d = r.created_at ? new Date(r.created_at) : new Date();
   return {
     id: r.id,
     who: r.customer_name || r.customer_phone || 'Neznámé číslo',
     phone: r.customer_phone || '',
-    t: new Date(r.created_at).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' }),
-    rel: formatRelTime(new Date(r.created_at)),
+    t: d.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' }),
+    rel: formatRelTime(d),
     status: r.status,
     live: false,
     sub: r.summary || '',
@@ -129,6 +132,7 @@ function mapBookingToEvent(r) {
     t: r.note || 'Rezervace',
     who: '—',
     starts_at: r.starts_at,
+    staff_id: r.staff_id ?? null,
   };
 }
 
@@ -440,19 +444,21 @@ const TodayView = ({ setNav, setCallSel, onNavCalendar }) => {
    Inbox view
    ============================================================ */
 const STATUS_META = {
-  live:    { label: 'Probíhá',       v: 'live'   },
-  booked:  { label: 'Rezervace',     v: 'accent' },
-  new:     { label: 'Nová klientka', v: 'accent' },
-  resched: { label: 'Přesunuto',     v: 'warn'   },
-  info:    { label: 'Info',          v: 'info'   },
-  missed:  { label: 'Zmeškáno',      v: 'bad'    },
-  cancel:  { label: 'Zrušeno',       v: ''       },
+  live:     { label: 'Probíhá',       v: 'live'   },
+  booked:   { label: 'Rezervace',     v: 'accent' },
+  new:      { label: 'Nová klientka', v: 'accent' },
+  resched:  { label: 'Přesunuto',     v: 'warn'   },
+  info:     { label: 'Info',          v: 'info'   },
+  missed:   { label: 'Zmeškáno',      v: 'bad'    },
+  cancel:   { label: 'Zrušeno',       v: ''       },
+  query:    { label: 'Dotaz',         v: 'info'   },
+  resolved: { label: 'Vyřešeno',      v: ''       },
 };
 
 const callStatus = (c) => c.live ? 'live' : (c.status || 'booked');
 
 const CallRow = ({ call, on, onClick }) => {
-  const st = STATUS_META[callStatus(call)];
+  const st = STATUS_META[callStatus(call)] ?? { label: call.status || 'Hovor', v: 'info' };
   const ini = getInitials(call.who);
   return (
     <div className={cx('row-call', on && 'on')} onClick={onClick}>
@@ -777,12 +783,12 @@ const TodayHero = () => {
   );
 };
 
-const InboxView = ({ selId, setSelId, onBookingCreated, onNavCalendar }) => {
+const InboxView = ({ selId, setSelId, onBookingCreated, onNavCalendar, dataVersion }) => {
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const filtered = useMemo(() => {
     let list = CALLS;
-    if (filter === 'attn') list = list.filter((c) => ['missed', 'resched', 'cancel'].includes(c.status));
+    if (filter === 'attn') list = list.filter((c) => ['missed', 'resched', 'cancel', 'query'].includes(c.status));
     else if (filter === 'book') list = list.filter((c) => c.live || c.status === 'booked' || c.status === 'new');
     else if (filter === 'missed') list = list.filter((c) => c.status === 'missed');
     if (search.trim()) {
@@ -790,7 +796,7 @@ const InboxView = ({ selId, setSelId, onBookingCreated, onNavCalendar }) => {
       list = list.filter(c => c.who?.toLowerCase().includes(q) || c.phone?.includes(q) || c.summary?.toLowerCase().includes(q));
     }
     return list;
-  }, [filter, search]);
+  }, [filter, search, dataVersion]);
   const sel = CALLS.find((c) => c.id === selId) ?? CALLS[0];
 
   return (
@@ -868,7 +874,7 @@ const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
   const [anchor, setAnchor] = useState(() => new Date());
   const [bookingModal, setBookingModal] = useState(false);
   const [selEvent, setSelEvent] = useState(null);
-  const [bForm, setBForm] = useState({ date: '', time: '09:00', serviceId: '', note: '' });
+  const [bForm, setBForm] = useState({ date: '', time: '09:00', serviceId: '', staffId: '', note: '' });
   const [bSaving, setBSaving] = useState(false);
 
   useEffect(() => {
@@ -901,7 +907,7 @@ const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
   }).map(e => {
     const start = new Date(e.starts_at);
     return { ...e, col: (start.getDay() + 6) % 7, s: start.getHours() + start.getMinutes() / 60 };
-  }).filter((e) => staff === 'all' || e.who?.toLowerCase().includes(staff));
+  }).filter((e) => staff === 'all' || e.staff_id === staff);
 
   const navigate = (dir) => {
     setAnchor(a => {
@@ -913,7 +919,7 @@ const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
 
   const openBooking = () => {
     const today = new Date().toISOString().slice(0, 10);
-    setBForm({ date: today, time: '09:00', serviceId: SERVICES[0]?.id ?? '', note: '' });
+    setBForm({ date: today, time: '09:00', serviceId: SERVICES[0]?.id ?? '', staffId: '', note: '' });
     setBookingModal(true);
   };
 
@@ -925,7 +931,7 @@ const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
     const ends = new Date(starts.getTime() + service.d * 60000);
     setBSaving(true);
     try {
-      await createBooking({ user_id: user.id, service_id: bForm.serviceId, starts_at: starts.toISOString(), ends_at: ends.toISOString(), note: bForm.note });
+      await createBooking({ user_id: user.id, service_id: bForm.serviceId, staff_id: bForm.staffId || null, starts_at: starts.toISOString(), ends_at: ends.toISOString(), note: bForm.note });
       toast.success('Rezervace vytvořena.');
       setBookingModal(false);
       setAnchor(starts);
@@ -961,7 +967,11 @@ const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
         </div>
         <div className="row gap-3" style={{ flexWrap: 'wrap' }}>
           <Seg items={[{ v: 'week', l: 'Týden' }]} value={view} onChange={setView} />
-          <Seg items={[{ v: 'all', l: 'Všichni' }]} value={staff} onChange={setStaff} />
+          <Seg
+            items={[{ v: 'all', l: 'Všichni' }, ...STAFF.filter(s => s.is_active).map(s => ({ v: s.id, l: s.name.split(' ')[0] }))]}
+            value={staff}
+            onChange={setStaff}
+          />
           <Btn variant="accent" icon={I.Plus} size="sm" onClick={openBooking}>Nová rezervace</Btn>
         </div>
       </div>
@@ -991,6 +1001,17 @@ const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
                 </select>
               </div>
             </label>
+            {STAFF.length > 0 && (
+              <label className="col gap-2" style={{ gridColumn: '1 / -1' }}>
+                <span className="lbl">Zaměstnanec</span>
+                <div className="field" style={{ padding: '8px 12px' }}>
+                  <select value={bForm.staffId} onChange={e => setBForm(f => ({ ...f, staffId: e.target.value }))} style={{ ...inputStyle }}>
+                    <option value="">Kdokoli je dostupný</option>
+                    {STAFF.filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+              </label>
+            )}
             <label className="col gap-2" style={{ gridColumn: '1 / -1' }}>
               <span className="lbl">Poznámka (volitelná)</span>
               <div className="field" style={{ padding: '8px 12px' }}>
@@ -1011,6 +1032,7 @@ const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
             <div>
               <div style={{ fontSize: 14, fontWeight: 500 }}>{selEvent.t}</div>
               <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>{fmtTime(selEvent.s)} – {fmtTime(selEvent.e)}</div>
+              {selEvent.staff_id && (() => { const sm = STAFF.find(s => s.id === selEvent.staff_id); return sm ? <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{sm.name}</div> : null; })()}
             </div>
             <div className="row gap-2">
               <Btn variant="ghost" size="sm" icon={I.X} onClick={() => deleteEvt(selEvent.id)}>Zrušit rezervaci</Btn>
@@ -2090,6 +2112,8 @@ const SetAccount = ({ user }) => {
   const [pw, setPw] = useState('');
   const [pw2, setPw2] = useState('');
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const changePw = async () => {
     if (pw.length < 8) { toast.error('Heslo musí mít alespoň 8 znaků.'); return; }
@@ -2104,6 +2128,20 @@ const SetAccount = ({ user }) => {
       toast.error(e.message || 'Chyba při změně hesla.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const deleteAccount = async () => {
+    setDeleting(true);
+    try {
+      const { error } = await supabase.rpc('delete_user');
+      if (error) throw error;
+      await supabase.auth.signOut();
+      window.location.href = '/';
+    } catch (e) {
+      toast.error(e.message || 'Chyba při mazání účtu.');
+      setDeleting(false);
+      setConfirmDelete(false);
     }
   };
 
@@ -2149,10 +2187,181 @@ const SetAccount = ({ user }) => {
         <div className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 16 }}>
           Smazání účtu je nevratné. Všechna data (klienti, rezervace, hovory) budou trvale odstraněna.
         </div>
-        <Btn variant="ghost" size="sm" style={{ color: '#f87171', borderColor: 'rgba(248,113,113,0.3)' }} onClick={() => toast.error('Pro smazání účtu kontaktujte podporu na help@planless.cz.')}>
-          Smazat účet
-        </Btn>
+        {!confirmDelete ? (
+          <Btn variant="ghost" size="sm" style={{ color: '#f87171', borderColor: 'rgba(248,113,113,0.3)' }} onClick={() => setConfirmDelete(true)}>
+            Smazat účet
+          </Btn>
+        ) : (
+          <div className="card thin" style={{ padding: 16, borderColor: 'rgba(248,113,113,0.3)' }}>
+            <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 8, color: '#f87171' }}>Opravdu chcete smazat účet?</div>
+            <div className="muted" style={{ fontSize: 12.5, marginBottom: 14 }}>Tato akce je nevratná. Všechna data budou smazána.</div>
+            <div className="row gap-2">
+              <Btn size="sm" style={{ background: '#f87171', color: '#fff', border: 'none' }} onClick={deleteAccount} disabled={deleting}>
+                {deleting ? 'Mažu…' : 'Ano, smazat navždy'}
+              </Btn>
+              <Btn variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>Zrušit</Btn>
+            </div>
+          </div>
+        )}
       </div>
+    </div>
+  );
+};
+
+const STAFF_COLORS = ['#6366f1', '#f43f5e', '#f59e0b', '#10b981', '#3b82f6'];
+
+const SetStaff = ({ user }) => {
+  const [staffList, setStaffList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [form, setForm] = useState({ name: '', email: '', phone: '', color: '#6366f1' });
+  const [saving, setSaving] = useState(false);
+  const inputStyle = { background: 'transparent', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink)', width: '100%' };
+
+  useEffect(() => {
+    if (!user) return;
+    fetchStaff().then(rows => { STAFF = rows; setStaffList(rows); }).catch(() => {}).finally(() => setLoading(false));
+  }, [user]);
+
+  const openAdd = () => {
+    setEditId(null);
+    setForm({ name: '', email: '', phone: '', color: '#6366f1' });
+    setModal(true);
+  };
+
+  const openEdit = (s) => {
+    setEditId(s.id);
+    setForm({ name: s.name, email: s.email || '', phone: s.phone || '', color: s.color || '#6366f1' });
+    setModal(true);
+  };
+
+  const save = async () => {
+    if (!form.name.trim()) { toast.error('Zadejte jméno.'); return; }
+    setSaving(true);
+    try {
+      if (editId) {
+        const updated = await updateStaff(editId, { name: form.name, email: form.email || null, phone: form.phone || null, color: form.color });
+        STAFF = STAFF.map(s => s.id === editId ? updated : s);
+      } else {
+        const created = await createStaff({ name: form.name, email: form.email || null, phone: form.phone || null, color: form.color });
+        STAFF = [...STAFF, created];
+      }
+      setStaffList([...STAFF]);
+      setModal(false);
+      toast.success(editId ? 'Zaměstnanec uložen.' : 'Zaměstnanec přidán.');
+    } catch (e) {
+      toast.error(e.message || 'Chyba při ukládání.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const del = async (id) => {
+    try {
+      await deleteStaff(id);
+      STAFF = STAFF.filter(s => s.id !== id);
+      setStaffList([...STAFF]);
+      toast.success('Zaměstnanec smazán.');
+    } catch (e) {
+      toast.error(e.message || 'Chyba při mazání.');
+    }
+  };
+
+  const toggleActive = async (s) => {
+    try {
+      const updated = await updateStaff(s.id, { is_active: !s.is_active });
+      STAFF = STAFF.map(m => m.id === s.id ? updated : m);
+      setStaffList([...STAFF]);
+    } catch (e) {
+      toast.error(e.message || 'Chyba.');
+    }
+  };
+
+  return (
+    <div className="card lg">
+      <div className="eyebrow">Tým</div>
+      <div className="h-section" style={{ marginTop: 8, marginBottom: 22, fontSize: 22 }}>
+        Správa <span className="serif-it" style={{ color: 'var(--accent)' }}>zaměstnanců</span>
+      </div>
+
+      {loading ? (
+        <div className="muted" style={{ fontSize: 13 }}>Načítám...</div>
+      ) : (
+        <div className="col gap-3" style={{ marginBottom: 20 }}>
+          {staffList.length === 0 && !modal && (
+            <div className="muted" style={{ fontSize: 13, padding: '12px 0' }}>Zatím žádní zaměstnanci. Přidejte prvního.</div>
+          )}
+          {staffList.map(s => (
+            <div key={s.id} className="card thin" style={{ padding: '12px 16px' }}>
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="row gap-3" style={{ alignItems: 'center' }}>
+                  <div className="av" style={{ background: s.color || 'var(--accent)', color: '#fff', fontWeight: 600 }}>
+                    {s.initials || s.name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 500 }}>{s.name}</div>
+                    <div className="muted" style={{ fontSize: 12 }}>{s.email || s.phone || 'Bez kontaktu'}</div>
+                  </div>
+                </div>
+                <div className="row gap-2" style={{ alignItems: 'center' }}>
+                  <Switch on={s.is_active} onChange={() => toggleActive(s)} />
+                  <Btn variant="ghost" size="sm" onClick={() => openEdit(s)}>Upravit</Btn>
+                  <Btn variant="ghost" size="sm" onClick={() => del(s.id)}><I.X s={14} /></Btn>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {modal && (
+        <div className="card thin" style={{ padding: 20, marginBottom: 20 }}>
+          <div className="eyebrow" style={{ marginBottom: 14 }}>{editId ? 'Upravit' : 'Přidat'} zaměstnance</div>
+          <div className="col gap-3">
+            <label className="col gap-2">
+              <span className="lbl">Jméno *</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input placeholder="Jana Nováková" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} autoFocus />
+              </div>
+            </label>
+            <label className="col gap-2">
+              <span className="lbl">E-mail</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input type="email" placeholder="jana@salon.cz" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={inputStyle} />
+              </div>
+            </label>
+            <label className="col gap-2">
+              <span className="lbl">Telefon</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input type="tel" placeholder="+420 777 111 222" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} style={inputStyle} />
+              </div>
+            </label>
+            <div className="col gap-2">
+              <span className="lbl">Barva v kalendáři</span>
+              <div className="row gap-2">
+                {STAFF_COLORS.map(c => (
+                  <div
+                    key={c}
+                    onClick={() => setForm(f => ({ ...f, color: c }))}
+                    style={{
+                      width: 28, height: 28, borderRadius: '50%', background: c, cursor: 'pointer',
+                      outline: form.color === c ? '3px solid var(--accent)' : '3px solid transparent',
+                      outlineOffset: 2,
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="row gap-2">
+              <Btn variant="accent" size="sm" onClick={save} disabled={saving}>{saving ? 'Ukládám…' : editId ? 'Uložit' : 'Přidat'}</Btn>
+              <Btn variant="ghost" size="sm" onClick={() => setModal(false)}>Zrušit</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Btn variant="ghost" size="sm" icon={I.Plus} onClick={openAdd}>Přidat zaměstnance</Btn>
     </div>
   );
 };
@@ -2172,6 +2381,7 @@ const SettingsView = () => {
     { id: 'ai',           label: 'AI recepční',    icon: I.Brain      },
     { id: 'hours',        label: 'Otevírací doba', icon: I.Clock      },
     { id: 'rules',        label: 'Pravidla',       icon: I.Sparkle    },
+    { id: 'staff',        label: 'Tým',            icon: I.Users      },
     { id: 'integrations', label: 'Integrace',      icon: I.Link       },
     { id: 'billing',      label: 'Předplatné',     icon: I.CreditCard },
     { id: 'account',      label: 'Účet',           icon: I.Lock       },
@@ -2194,6 +2404,7 @@ const SettingsView = () => {
         {tab === 'ai'           && <SetAI user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
         {tab === 'hours'        && <SetHours user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
         {tab === 'rules'        && <SetRules user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
+        {tab === 'staff'        && <SetStaff user={user} />}
         {tab === 'integrations' && <SetInteg user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
         {tab === 'billing'      && <SetBilling />}
         {tab === 'account'      && <SetAccount user={user} />}
@@ -2399,6 +2610,7 @@ export default function Dashboard() {
       fetchCustomers().then(rows => { CLIENTS = rows.map(mapCustomerRow); }),
       fetchServices().then(rows => { SERVICES = rows.map(mapServiceRow); }),
       fetchBookings().then(rows => { EVENTS = rows.map(mapBookingToEvent); }),
+      fetchStaff().then(rows => { STAFF = rows; }),
     ]).then(() => { setLoading(false); setDataVersion(v => v + 1); });
   }, [user]);
 
@@ -2461,6 +2673,12 @@ export default function Dashboard() {
     setDataVersion(v => v + 1);
   }, []);
 
+  const refreshStaff = useCallback(async () => {
+    clearCachedStaff();
+    STAFF = await fetchStaff();
+    setDataVersion(v => v + 1);
+  }, []);
+
   const m = getViewMeta(nav);
 
   const right = (
@@ -2477,7 +2695,7 @@ export default function Dashboard() {
           <div className="view">
             {loading ? <LoadingView /> : <>
               {nav === 'today'    && <TodayView setNav={setNav} setCallSel={setCallSel} />}
-              {nav === 'inbox'    && <InboxView selId={callSel} setSelId={setCallSel} onBookingCreated={refreshBookings} onNavCalendar={() => setNav('calendar')} />}
+              {nav === 'inbox'    && <InboxView selId={callSel} setSelId={setCallSel} onBookingCreated={refreshBookings} onNavCalendar={() => setNav('calendar')} dataVersion={dataVersion} />}
               {nav === 'calendar' && <CalendarView onRefresh={refreshBookings} prefillClient={calPrefill} onPrefillUsed={() => setCalPrefill(null)} />}
               {nav === 'clients'  && <ClientsView onRefresh={refreshCustomers} onNavigate={(view, prefill) => { if (prefill) setCalPrefill(prefill); setNav(view); }} />}
               {nav === 'services' && <ServicesView onRefresh={refreshServices} />}

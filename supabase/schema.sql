@@ -221,3 +221,35 @@ ALTER TABLE public.calls ADD COLUMN IF NOT EXISTS conversation_state jsonb;
 ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS gcal_event_id text;
 CREATE INDEX IF NOT EXISTS calls_twilio_sid_idx ON public.calls(twilio_call_sid) WHERE twilio_call_sid IS NOT NULL;
 CREATE INDEX IF NOT EXISTS company_settings_twilio_phone_idx ON public.company_settings(twilio_phone_number) WHERE twilio_phone_number IS NOT NULL;
+
+-- Phase A: account deletion function (SECURITY DEFINER — smí smazat auth.users)
+CREATE OR REPLACE FUNCTION public.delete_user()
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  DELETE FROM auth.users WHERE id = auth.uid();
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.delete_user() TO authenticated;
+
+-- Phase B: Staff management
+CREATE TABLE IF NOT EXISTS public.staff (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  color text DEFAULT '#6366f1',
+  initials text,
+  email text,
+  phone text,
+  working_hours jsonb,
+  is_active boolean DEFAULT true,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE public.staff ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "staff_own" ON public.staff
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE INDEX IF NOT EXISTS staff_user_id_idx ON public.staff(user_id);
+
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS staff_id uuid REFERENCES public.staff(id) ON DELETE SET NULL;
+
+-- Phase E: service active status
+ALTER TABLE public.services ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;

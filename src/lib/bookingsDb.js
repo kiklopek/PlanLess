@@ -61,6 +61,7 @@ export async function createBooking(payload) {
       call_id: payload.call_id ?? null,
       customer_id: payload.customer_id ?? null,
       service_id: payload.service_id,
+      staff_id: payload.staff_id ?? null,
       starts_at: payload.starts_at,
       ends_at: payload.ends_at,
       note: payload.note ?? null,

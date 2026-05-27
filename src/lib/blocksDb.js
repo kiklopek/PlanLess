@@ -28,9 +28,12 @@ function upsertBlockCache(row) {
 
 export async function fetchBlocks() {
   if (cacheIsFresh()) return cachedBlocks.data
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
   const { data, error } = await supabase
     .from('calendar_blocks')
     .select('id, starts_at, ends_at, reason, created_at')
+    .eq('user_id', user.id)
     .order('starts_at', { ascending: true })
 
   if (error) throw error
