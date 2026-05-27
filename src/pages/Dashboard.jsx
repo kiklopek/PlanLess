@@ -24,6 +24,7 @@ let SERVICES = [];
 let EVENTS = [];
 let STAFF = [];
 let BLOCKS = [];
+let WEBHOOK_URL = null;
 
 /* ── Week helpers ── */
 const CZ_DAYS = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
@@ -1040,6 +1041,10 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
       setAnchor(starts);
       await onRefresh();
       syncGcal('push', newBooking.id);
+      if (WEBHOOK_URL) {
+        const service = SERVICES.find(s => s.id === bForm.serviceId);
+        fetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: 'booking.created', booking_id: newBooking.id, service: service?.name, starts_at: starts.toISOString() }) }).catch(() => {});
+      }
     } catch (e) {
       toast.error(e.message || 'Chyba při ukládání.');
     } finally {
@@ -1390,6 +1395,36 @@ const ClientsView = ({ onRefresh, onNavigate }) => {
     setSmsSending(false);
   };
 
+  const [csvImporting, setCsvImporting] = useState(false);
+
+  const importCsv = async (file) => {
+    if (!file || !user) return;
+    setCsvImporting(true);
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) { toast.error('CSV je prázdné.'); return; }
+      const header = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/['"]/g, ''));
+      const nameIdx = header.findIndex(h => h.includes('name') || h.includes('jmeno') || h.includes('jméno'));
+      const phoneIdx = header.findIndex(h => h.includes('phone') || h.includes('telefon') || h.includes('tel'));
+      if (phoneIdx === -1) { toast.error('CSV musí mít sloupec "phone" nebo "telefon".'); return; }
+      const rows = lines.slice(1).map(l => {
+        const cols = l.split(',').map(c => c.trim().replace(/^["']|["']$/g, ''));
+        return { phone: cols[phoneIdx]?.trim(), name: nameIdx >= 0 ? cols[nameIdx]?.trim() : undefined };
+      }).filter(r => r.phone);
+      let imported = 0;
+      for (const r of rows) {
+        try {
+          await upsertCustomer({ user_id: user.id, phone: r.phone, name: r.name || r.phone });
+          imported++;
+        } catch {}
+      }
+      toast.success(`Importováno ${imported} z ${rows.length} klientů.`);
+      await onRefresh();
+    } catch (e) { toast.error(e.message || 'Chyba při importu.'); }
+    setCsvImporting(false);
+  };
+
   const inputStyle = { background: 'transparent', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink)', width: '100%' };
 
   return (
@@ -1398,7 +1433,13 @@ const ClientsView = ({ onRefresh, onNavigate }) => {
         <div className="list-hd">
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
             <div className="h-section" style={{ fontSize: 18 }}>Klienti</div>
-            <Btn variant="ghost" icon={I.Plus} size="sm" onClick={() => setAddModal(true)} />
+            <div className="row gap-1">
+              <label title="Import CSV" style={{ cursor: 'pointer' }}>
+                <input type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={e => { if (e.target.files?.[0]) importCsv(e.target.files[0]); e.target.value = ''; }} />
+                <Btn variant="ghost" size="sm" icon={I.Upload} disabled={csvImporting} as="span">{csvImporting ? '…' : ''}</Btn>
+              </label>
+              <Btn variant="ghost" icon={I.Plus} size="sm" onClick={() => setAddModal(true)} />
+            </div>
           </div>
           <div className="field">
             <I.Search />
@@ -2046,6 +2087,11 @@ const SetInteg = ({ user, companySettings, onSettingsSaved }) => {
   const [bookingTitle, setBookingTitle] = useState(companySettings?.booking_page_title ?? '');
   const [bookingEnabled, setBookingEnabled] = useState(companySettings?.booking_page_enabled !== false);
   const [savingBooking, setSavingBooking] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState(companySettings?.webhook_url ?? '');
+  const [savingWebhook, setSavingWebhook] = useState(false);
+  const [resendFrom, setResendFrom] = useState(companySettings?.resend_from_email ?? '');
+  const [emailConfirm, setEmailConfirm] = useState(companySettings?.email_confirm_enabled ?? false);
+  const [savingEmail, setSavingEmail] = useState(false);
 
   useEffect(() => {
     setTwilioPhone(companySettings?.twilio_phone_number ?? '');
@@ -2053,6 +2099,9 @@ const SetInteg = ({ user, companySettings, onSettingsSaved }) => {
     setBookingSlug(companySettings?.booking_slug ?? '');
     setBookingTitle(companySettings?.booking_page_title ?? '');
     setBookingEnabled(companySettings?.booking_page_enabled !== false);
+    setWebhookUrl(companySettings?.webhook_url ?? '');
+    setResendFrom(companySettings?.resend_from_email ?? '');
+    setEmailConfirm(companySettings?.email_confirm_enabled ?? false);
   }, [companySettings]);
 
   const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? '';
@@ -2118,6 +2167,28 @@ const SetInteg = ({ user, companySettings, onSettingsSaved }) => {
     } finally {
       setSavingBooking(false);
     }
+  }
+
+  async function saveWebhook() {
+    if (!user) return;
+    setSavingWebhook(true);
+    try {
+      const updated = await saveCompanySettings(user.id, { webhook_url: webhookUrl.trim() || null });
+      if (onSettingsSaved) onSettingsSaved(updated);
+      toast.success('Webhook URL uložena.');
+    } catch (e) { toast.error(e.message || 'Chyba při ukládání.'); }
+    setSavingWebhook(false);
+  }
+
+  async function saveEmailSettings() {
+    if (!user) return;
+    setSavingEmail(true);
+    try {
+      const updated = await saveCompanySettings(user.id, { resend_from_email: resendFrom.trim() || null, email_confirm_enabled: emailConfirm });
+      if (onSettingsSaved) onSettingsSaved(updated);
+      toast.success('Email nastavení uloženo.');
+    } catch (e) { toast.error(e.message || 'Chyba při ukládání.'); }
+    setSavingEmail(false);
   }
 
   const soonItems = [
@@ -2231,7 +2302,7 @@ const SetInteg = ({ user, companySettings, onSettingsSaved }) => {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Switch
-              checked={bookingEnabled}
+              on={bookingEnabled}
               onChange={v => setBookingEnabled(v)}
             />
             <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.04)', color: 'var(--ink-2)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
@@ -2283,6 +2354,73 @@ const SetInteg = ({ user, companySettings, onSettingsSaved }) => {
               </div>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ── Webhook / Zapier ────────────────────────────────────── */}
+      <div className="card lg">
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+          <div>
+            <div className="eyebrow">Automatizace</div>
+            <div className="h-section" style={{ fontSize: 20, marginTop: 6 }}>Webhook · Zapier</div>
+          </div>
+          <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.04)', color: 'var(--ink-2)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+            <I.Link s={18} />
+          </div>
+        </div>
+        <div className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 20 }}>
+          Po každé nové rezervaci PlanLess odešle POST request na váš webhook URL. Napojte Zapier, Make nebo vlastní systém.
+        </div>
+        <div className="col gap-3">
+          <div>
+            <div className="lbl" style={{ marginBottom: 6 }}>Webhook URL</div>
+            <div className="row gap-2">
+              <input style={inputSt} value={webhookUrl} onChange={e => setWebhookUrl(e.target.value)} placeholder="https://hooks.zapier.com/hooks/catch/…" />
+              <Btn variant="accent" size="sm" onClick={saveWebhook} disabled={savingWebhook}>{savingWebhook ? 'Ukládám…' : 'Uložit'}</Btn>
+            </div>
+          </div>
+          <div className="card thin" style={{ padding: '12px 16px', background: 'var(--accent-soft)' }}>
+            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>Odesílaná data (JSON)</div>
+            <pre className="mono muted" style={{ fontSize: 11, margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{`{
+  "event": "booking.created",
+  "booking_id": "uuid",
+  "service": "Střih + foukaná",
+  "starts_at": "2025-06-01T10:00:00Z",
+  "customer_name": "Jana Nováková",
+  "customer_phone": "+420 777 111 222"
+}`}</pre>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Email potvrzení (Resend) ─────────────────────────────── */}
+      <div className="card lg">
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+          <div>
+            <div className="eyebrow">E-mail</div>
+            <div className="h-section" style={{ fontSize: 20, marginTop: 6 }}>Resend · E-mailová potvrzení</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Switch on={emailConfirm} onChange={v => setEmailConfirm(v)} />
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.04)', color: 'var(--ink-2)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+              <I.Mail s={18} />
+            </div>
+          </div>
+        </div>
+        <div className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 20 }}>
+          Zákazníkům s e-mailem bude automaticky odesláno potvrzení rezervace přes Resend. Vyžaduje nastavení <code style={{ padding: '1px 5px', background: 'var(--paper-2, var(--paper))', borderRadius: 4, fontSize: 12 }}>RESEND_API_KEY</code> v Edge Function prostředí.
+        </div>
+        <div className="col gap-3">
+          <div>
+            <div className="lbl" style={{ marginBottom: 6 }}>Odesílací e-mail <span className="muted">(Sender adresa)</span></div>
+            <div className="row gap-2">
+              <input style={inputSt} value={resendFrom} onChange={e => setResendFrom(e.target.value)} placeholder="rezervace@vas-salon.cz" type="email" />
+              <Btn variant="accent" size="sm" onClick={saveEmailSettings} disabled={savingEmail}>{savingEmail ? 'Ukládám…' : 'Uložit'}</Btn>
+            </div>
+            <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+              Doménu musíte ověřit v Resend dashboard. Bez ověřené domény odchozí e-maily nebudou fungovat.
+            </div>
+          </div>
         </div>
       </div>
 
@@ -3426,7 +3564,7 @@ export default function Dashboard() {
       fetchBookings().then(rows => { EVENTS = rows.map(mapBookingToEvent); }),
       fetchStaff().then(rows => { STAFF = rows; }),
       fetchBlocks().then(rows => { BLOCKS = rows; }),
-      getCompanySettings(user.id).then(s => setMainSettings(s)).catch(() => {}),
+      getCompanySettings(user.id).then(s => { setMainSettings(s); WEBHOOK_URL = s?.webhook_url ?? null; }).catch(() => {}),
     ]).then(() => { setLoading(false); setDataVersion(v => v + 1); });
   }, [user]);
 
