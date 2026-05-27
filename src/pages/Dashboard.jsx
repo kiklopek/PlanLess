@@ -69,6 +69,9 @@ function getTodayLabel() {
 
 function mapCallRow(r) {
   const d = r.created_at ? new Date(r.created_at) : new Date();
+  const isLive = r.status === 'live';
+  const turns = (r.conversation_state?.turns ?? []).filter(t => !t.content?.startsWith('[systém:'));
+  const lastAiTurn = [...turns].reverse().find(t => t.role === 'assistant');
   return {
     id: r.id,
     who: r.customer_name || r.customer_phone || 'Neznámé číslo',
@@ -76,16 +79,17 @@ function mapCallRow(r) {
     t: d.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' }),
     rel: formatRelTime(d),
     status: r.status,
-    live: false,
-    sub: r.summary || '',
+    live: isLive,
+    sub: isLive ? (lastAiTurn?.content || 'Nikola vyřizuje hovor…') : (r.summary || ''),
     summary: r.transcript_full || r.summary || '',
+    transcript: turns,
     tags: [r.status].filter(Boolean),
     vip: false,
     created_at: r.created_at,
     recording_url: r.recording_url || null,
     outcome: {
       kind: r.status,
-      label: r.status === 'booked' ? 'Rezervace vytvořena' : r.status === 'missed' ? 'Zmeškaný hovor' : 'Dotaz zákazníka',
+      label: r.status === 'booked' ? 'Rezervace vytvořena' : r.status === 'missed' ? 'Zmeškaný hovor' : isLive ? 'Probíhá hovor' : 'Dotaz zákazníka',
       sub: r.summary || '',
       service: r.bookings?.services?.name ?? null,
       when: r.bookings?.starts_at ? new Date(r.bookings.starts_at).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : null,
@@ -256,9 +260,14 @@ const Rail = ({ nav, setNav, onSignOut, missedCount }) => (
 /* ============================================================
    Dock (topbar)
    ============================================================ */
-const AiPres = ({ aiOn }) => (
-  <div className="ai-pres" title={aiOn ? 'AI Nikola má službu' : 'AI je pozastavená'}>
-    <div className="av">N</div>
+const AiPres = ({ aiOn, onToggle }) => (
+  <div
+    className="ai-pres"
+    title={aiOn ? 'Nikola má službu — kliknutím pozastavit' : 'AI je pozastavená — kliknutím obnovit'}
+    onClick={onToggle}
+    style={{ cursor: onToggle ? 'pointer' : 'default' }}
+  >
+    <div className="av" style={{ opacity: aiOn ? 1 : 0.45 }}>N</div>
     <div className="lbl">
       <div className="who row gap-2" style={{ alignItems: 'center' }}>
         Nikola
@@ -271,7 +280,7 @@ const AiPres = ({ aiOn }) => (
   </div>
 );
 
-const Dock = ({ title, crumb, right, aiOn }) => (
+const Dock = ({ title, crumb, right, aiOn, onToggleAi }) => (
   <header className="dock">
     <div className="col">
       <div className="dock-title">{title}</div>
@@ -279,7 +288,7 @@ const Dock = ({ title, crumb, right, aiOn }) => (
     </div>
     <div className="spacer" />
     {right}
-    <AiPres aiOn={aiOn} />
+    <AiPres aiOn={aiOn} onToggle={onToggleAi} />
   </header>
 );
 
@@ -663,6 +672,15 @@ const CallDetail = ({ call, onBookingCreated, onNavCalendar }) => {
                 ? <div className="muted" style={{ padding: '12px 0', fontSize: 13 }}>Nikola vyřizuje hovor…</div>
                 : (call.transcript || []).map((t, i) => <TranscriptTurn key={i} turn={t} />)
               }
+            </div>
+          </div>
+        )}
+
+        {!call.live && (call.transcript || []).length > 0 && (
+          <div style={{ marginBottom: 28 }}>
+            <div className="eyebrow" style={{ marginBottom: 14 }}>Přepis hovoru</div>
+            <div className="tr">
+              {(call.transcript || []).map((t, i) => <TranscriptTurn key={i} turn={t} />)}
             </div>
           </div>
         )}
@@ -2646,7 +2664,8 @@ export default function Dashboard() {
   const [nav, setNav] = useState(() => {
     try { return localStorage.getItem('pl:nav') || 'today'; } catch { return 'today'; }
   });
-  const [aiOn] = useState(true);
+  const [mainSettings, setMainSettings] = useState(null);
+  const aiOn = !mainSettings?.ai_paused;
   const [tweaks, setTweaks] = useState({ accentHue: 45, density: 'compact' });
   const [tweaksActive, setTweaksActive] = useState(false);
   const [callSel, setCallSel] = useState(null);
@@ -2691,6 +2710,7 @@ export default function Dashboard() {
       fetchServices().then(rows => { SERVICES = rows.map(mapServiceRow); }),
       fetchBookings().then(rows => { EVENTS = rows.map(mapBookingToEvent); }),
       fetchStaff().then(rows => { STAFF = rows; }),
+      getCompanySettings(user.id).then(s => setMainSettings(s)).catch(() => {}),
     ]).then(() => { setLoading(false); setDataVersion(v => v + 1); });
   }, [user]);
 
@@ -2698,6 +2718,8 @@ export default function Dashboard() {
   useEffect(() => {
     if (!user) return;
     const prevMissed = { count: CALLS.filter(c => c.status === 'missed').length };
+
+    const prevLive = { count: 0 };
 
     const channel = supabase.channel(`dashboard:${user.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'calls',    filter: `user_id=eq.${user.id}` }, async () => {
@@ -2709,6 +2731,12 @@ export default function Dashboard() {
           if (latest) toast(`📞 Zmeškaný hovor — ${latest.who}`, { duration: 6000 });
         }
         prevMissed.count = newMissed;
+        const newLive = CALLS.filter(c => c.live).length;
+        if (newLive > prevLive.count) {
+          const lc = CALLS.find(c => c.live);
+          if (lc) toast(`📞 Příchozí hovor — ${lc.who}`, { duration: 10000 });
+        }
+        prevLive.count = newLive;
         setDataVersion(v => v + 1);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings', filter: `user_id=eq.${user.id}` }, async () => {
@@ -2759,6 +2787,19 @@ export default function Dashboard() {
     setDataVersion(v => v + 1);
   }, []);
 
+  const toggleAi = useCallback(async () => {
+    if (!user || !mainSettings) return;
+    const next = { ...mainSettings, ai_paused: !mainSettings.ai_paused };
+    setMainSettings(next);
+    try {
+      await saveCompanySettings(user.id, next);
+      toast(next.ai_paused ? 'AI recepční pozastavena.' : 'AI recepční obnovena.');
+    } catch {
+      setMainSettings(mainSettings);
+      toast.error('Nepodařilo se změnit stav AI.');
+    }
+  }, [user, mainSettings]);
+
   const m = getViewMeta(nav);
 
   const right = (
@@ -2771,7 +2812,7 @@ export default function Dashboard() {
       <div className="app">
         <Rail nav={nav} setNav={setNav} onSignOut={signOut} missedCount={CALLS.filter(c => c.status === 'missed').length} />
         <div className="col-main">
-          <Dock title={m.title} crumb={m.crumb} right={right} aiOn={aiOn} />
+          <Dock title={m.title} crumb={m.crumb} right={right} aiOn={aiOn} onToggleAi={toggleAi} />
           <div className="view">
             {loading ? <LoadingView /> : <>
               {nav === 'today'    && <TodayView setNav={setNav} setCallSel={setCallSel} onRefresh={refreshBookings} />}
