@@ -1,0 +1,32 @@
+{
+  "name": "PlanLess — AI recepční",
+  "short_name": "PlanLess",
+  "description": "AI recepční pro malé firmy. Nikdy nezmešká hovor, sama rezervuje.",
+  "start_url": "/app",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f0f0f",
+  "theme_color": "#f59e0b",
+  "lang": "cs",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dnes",
+      "url": "/app",
+      "description": "Dnešní přehled rezervací"
+    },
+    {
+      "name": "Kalendář",
+      "url": "/app?view=calendar",
+      "description": "Přehled kalendáře"
+    }
+  ]
+}

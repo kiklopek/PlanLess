@@ -568,3 +568,83 @@ select option { background: var(--paper); color: var(--ink); }
   .stat-grid { grid-template-columns: 1fr 1fr; }
   .dock .ai-pres .lbl { display: none; }
 }
+
+/* ===== Mobile (<= 600px) — bottom nav, full-width views ===== */
+@media (max-width: 600px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+    height: 100dvh;
+  }
+  .rail {
+    grid-row: 3;
+    flex-direction: row;
+    border-right: none;
+    border-top: 1px solid var(--line);
+    padding: 0;
+    background: var(--paper);
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  .rail::-webkit-scrollbar { display: none; }
+  .rail .mark { display: none; }
+  .rail-nav {
+    flex-direction: row;
+    gap: 0;
+    padding: 0;
+    width: 100%;
+  }
+  .rail-item {
+    flex: 1;
+    min-width: 56px;
+    width: auto;
+    height: 56px;
+    border-radius: 0;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 10px;
+  }
+  .rail-item .lbl { display: block; font-size: 10px; letter-spacing: 0; }
+  .rail-foot {
+    display: none;
+  }
+  .dock {
+    grid-row: 1;
+    padding: 12px 16px;
+    padding-top: max(12px, env(safe-area-inset-top, 0));
+  }
+  .col-main {
+    grid-row: 2;
+    overflow: auto;
+  }
+  .view {
+    padding: 16px;
+    padding-bottom: 8px;
+  }
+  .inbox { grid-template-columns: 1fr; }
+  .clients { grid-template-columns: 1fr; }
+  .profile { display: none; }
+  .clients.has-sel .list { display: none; }
+  .clients.has-sel .profile { display: block; }
+  .settings { grid-template-columns: 1fr; }
+  .settings-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 6px;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+  .settings-nav::-webkit-scrollbar { display: none; }
+  .settings-nav button {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .cal-grid { font-size: 11px; }
+  .row-call { grid-template-columns: auto 1fr auto; gap: 10px; padding: 11px 12px; }
+  .hero-card .greet { font-size: 22px; }
+  .kpi .n { font-size: 26px; }
+  .kpi { padding: 4px 10px; }
+  .card.lg { padding: 18px; }
+  .h-section { font-size: 17px !important; }
+}
