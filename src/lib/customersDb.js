@@ -32,7 +32,7 @@ export async function fetchCustomers() {
     const user = await requireUser()
     const { data, error } = await supabase
       .from('customers')
-      .select('id, phone, name, notes, vip_status, last_visit_date, created_at')
+      .select('id, phone, name, email, notes, vip_status, last_visit_date, created_at')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(500)
@@ -56,18 +56,35 @@ export async function upsertCustomer(payload) {
         user_id: user.id,
         phone: payload.phone,
         name: payload.name ?? null,
+        email: payload.email ?? null,
         notes: payload.notes ?? null,
         vip_status: payload.vip_status ?? false,
         last_visit_date: payload.last_visit_date ?? null,
       },
       { onConflict: 'user_id,phone' }
     )
-    .select('id, phone, name, notes, vip_status, last_visit_date, created_at')
+    .select('id, phone, name, email, notes, vip_status, last_visit_date, created_at')
     .single()
 
   if (error) throw error
   if (cachedCustomers) {
     setCachedCustomers([data, ...cachedCustomers.data.filter(c => c.id !== data.id)])
+  }
+  return data
+}
+
+export async function updateCustomerById(id, patch) {
+  const user = await requireUser()
+  const { data, error } = await supabase
+    .from('customers')
+    .update(patch)
+    .eq('id', id)
+    .eq('user_id', user.id)
+    .select('id, phone, name, email, notes, vip_status, last_visit_date, created_at')
+    .single()
+  if (error) throw error
+  if (cachedCustomers) {
+    setCachedCustomers(cachedCustomers.data.map(c => c.id === id ? data : c))
   }
   return data
 }

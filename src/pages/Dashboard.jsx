@@ -5,7 +5,7 @@ import './Dashboard.css';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { fetchCalls, updateCallStatus, clearCachedCalls } from '../lib/callsDb.js';
 import { fetchStaff, createStaff, updateStaff, deleteStaff, clearCachedStaff } from '../lib/staffDb.js';
-import { fetchCustomers, upsertCustomer, deleteCustomerByPhone, fetchCustomerStats } from '../lib/customersDb.js';
+import { fetchCustomers, upsertCustomer, updateCustomerById, deleteCustomerByPhone, fetchCustomerStats, clearCachedCustomers } from '../lib/customersDb.js';
 import { fetchServices, createService, updateService, deleteService } from '../lib/servicesDb.js';
 import { fetchBookings, createBooking, deleteBooking, clearCachedBookings } from '../lib/bookingsDb.js';
 import { fetchBlocks, createBlock, deleteBlock, clearCachedBlocks } from '../lib/blocksDb.js';
@@ -148,6 +148,7 @@ function mapCustomerRow(r) {
     id: r.id,
     name: r.name || r.phone,
     phone: r.phone,
+    email: r.email || '',
     vip: r.vip_status,
     note: r.notes || '',
     ini,
@@ -342,7 +343,7 @@ const Dock = ({ title, crumb, right, aiOn, onToggleAi }) => (
 /* ============================================================
    Today view
    ============================================================ */
-const TodayView = ({ setNav, setCallSel, onNavCalendar, onRefresh }) => {
+const TodayView = ({ setNav, setCallSel, onNavCalendar, onRefresh, aiOn }) => {
   const week = getCurrentWeek();
   const [menuId, setMenuId] = useState(null);
   const liveCall = CALLS.find((c) => c.live);
@@ -360,6 +361,15 @@ const TodayView = ({ setNav, setCallSel, onNavCalendar, onRefresh }) => {
 
   return (
     <div className="col gap-6">
+      {aiOn === false && (
+        <div style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 12, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <I.PhoneOff s={16} style={{ color: '#fbbf24', flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: '#fbbf24' }}>AI recepční je pozastavena</div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 2 }}>Nikola momentálně nepřijímá hovory. Zapněte ji v hlavičce přes přepínač.</div>
+          </div>
+        </div>
+      )}
       <div className="hero-card">
         <div className="hero-text">
           <div className="eyebrow" style={{ marginBottom: 14 }}>{getTodayLabel()}</div>
@@ -1548,6 +1558,8 @@ const ClientsView = ({ onRefresh, onNavigate }) => {
   const [q, setQ] = useState('');
   const [addModal, setAddModal] = useState(false);
   const [form, setForm] = useState({ name: '', phone: '', email: '', vip: false });
+  const [editModal, setEditModal] = useState(null); // null | client object
+  const [editForm, setEditForm] = useState({ name: '', phone: '', email: '', notes: '', vip: false });
   const [saving, setSaving] = useState(false);
   const [clientStats, setClientStats] = useState({ visits: 0, spend: 0 });
   const [smsModal, setSmsModal] = useState(false);
@@ -1570,10 +1582,36 @@ const ClientsView = ({ onRefresh, onNavigate }) => {
     if (!form.phone.trim()) { toast.error('Zadejte telefonní číslo.'); return; }
     setSaving(true);
     try {
-      await upsertCustomer({ user_id: user.id, name: form.name.trim() || form.phone, phone: form.phone.trim(), notes: '', vip_status: form.vip });
+      await upsertCustomer({ name: form.name.trim() || form.phone, phone: form.phone.trim(), email: form.email.trim() || null, notes: '', vip_status: form.vip });
       toast.success('Klient přidán.');
       setAddModal(false);
       setForm({ name: '', phone: '', email: '', vip: false });
+      await onRefresh();
+    } catch (e) {
+      toast.error(e.message || 'Chyba při ukládání.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openEdit = (c) => {
+    setEditForm({ name: c.name || '', phone: c.phone || '', email: c.email || '', notes: c.note || '', vip: c.vip });
+    setEditModal(c);
+  };
+
+  const saveEdit = async () => {
+    if (!editForm.phone.trim()) { toast.error('Zadejte telefonní číslo.'); return; }
+    setSaving(true);
+    try {
+      await updateCustomerById(editModal.id, {
+        name: editForm.name.trim() || editForm.phone,
+        phone: editForm.phone.trim(),
+        email: editForm.email.trim() || null,
+        notes: editForm.notes.trim() || null,
+        vip_status: editForm.vip,
+      });
+      toast.success('Klient upraven.');
+      setEditModal(null);
       await onRefresh();
     } catch (e) {
       toast.error(e.message || 'Chyba při ukládání.');
@@ -1669,6 +1707,9 @@ const ClientsView = ({ onRefresh, onNavigate }) => {
               <div className="field" style={{ padding: '8px 12px' }}>
                 <input placeholder="Telefon *" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} style={inputStyle} />
               </div>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input type="email" placeholder="E-mail (pro pozvánky z Google)" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={inputStyle} />
+              </div>
               <div className="row gap-2" style={{ alignItems: 'center', fontSize: 13 }}>
                 <Switch on={form.vip} onChange={v => setForm(f => ({ ...f, vip: v }))} />
                 <span className="muted">VIP klient</span>
@@ -1709,6 +1750,7 @@ const ClientsView = ({ onRefresh, onNavigate }) => {
                 </div>
                 <div className="row gap-4 muted" style={{ fontSize: 13, marginTop: 10, flexWrap: 'wrap' }}>
                   <span className="row gap-2"><I.Phone s={12} /><span className="mono">{client.phone}</span></span>
+                  {client.email && <span className="row gap-2"><I.Message s={12} /><span>{client.email}</span></span>}
                   {client.last !== '—' && <span className="row gap-2"><I.Clock s={12} />Poslední: {client.last}</span>}
                 </div>
               </div>
@@ -1722,7 +1764,8 @@ const ClientsView = ({ onRefresh, onNavigate }) => {
                   <Btn icon={I.Message} size="sm" onClick={() => { setSmsText(''); setSmsModal(v => !v); }}>SMS</Btn>
                 )}
                 <Btn variant="accent" icon={I.Plus} size="sm" onClick={() => onNavigate('calendar', { note: client.name, phone: client.phone })}>Rezervovat</Btn>
-                <Btn variant="ghost" icon={I.X} size="sm" onClick={() => removeClient(client.phone)} />
+                <Btn variant="ghost" icon={I.Edit} size="sm" onClick={() => openEdit(client)} title="Upravit klienta" />
+                <Btn variant="ghost" icon={I.X} size="sm" onClick={() => removeClient(client.phone)} title="Smazat klienta" />
               </div>
             </div>
             {smsModal && (
@@ -1735,7 +1778,26 @@ const ClientsView = ({ onRefresh, onNavigate }) => {
                 </div>
               </div>
             )}
-            {client.note && (
+            {editModal?.id === client.id && (
+              <div style={{ marginTop: 16, padding: 16, background: 'var(--paper-2, var(--paper))', borderRadius: 10, border: '1px solid var(--line)' }}>
+                <div className="eyebrow" style={{ marginBottom: 12 }}>Upravit klienta</div>
+                <div className="col gap-2" style={{ marginBottom: 12 }}>
+                  <div className="field" style={{ padding: '8px 12px' }}><input placeholder="Jméno" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} autoFocus /></div>
+                  <div className="field" style={{ padding: '8px 12px' }}><input placeholder="Telefon *" value={editForm.phone} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} style={inputStyle} /></div>
+                  <div className="field" style={{ padding: '8px 12px' }}><input type="email" placeholder="E-mail" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} style={inputStyle} /></div>
+                  <div className="field" style={{ padding: '8px 12px' }}><textarea placeholder="Poznámky o klientovi…" value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} rows={2} style={{ ...inputStyle, resize: 'vertical' }} /></div>
+                  <div className="row gap-2" style={{ alignItems: 'center', fontSize: 13 }}>
+                    <Switch on={editForm.vip} onChange={v => setEditForm(f => ({ ...f, vip: v }))} />
+                    <span className="muted">VIP klient</span>
+                  </div>
+                </div>
+                <div className="row gap-2">
+                  <Btn variant="accent" size="sm" onClick={saveEdit} disabled={saving}>{saving ? 'Ukládám…' : 'Uložit'}</Btn>
+                  <Btn variant="ghost" size="sm" onClick={() => setEditModal(null)}>Zrušit</Btn>
+                </div>
+              </div>
+            )}
+            {client.note && !(editModal?.id === client.id) && (
               <div className="note" style={{ marginTop: 22 }}>
                 <div className="ic"><I.Sparkle s={16} /></div>
                 <div className="body"><strong>Poznámka:</strong> {client.note}</div>
@@ -3887,6 +3949,11 @@ export default function Dashboard() {
         EVENTS = (await fetchBookings()).map(mapBookingToEvent);
         setDataVersion(v => v + 1);
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'customers', filter: `user_id=eq.${user.id}` }, async () => {
+        clearCachedCustomers();
+        CLIENTS = (await fetchCustomers()).map(mapCustomerRow);
+        setDataVersion(v => v + 1);
+      })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
@@ -3964,7 +4031,7 @@ export default function Dashboard() {
           <Dock title={m.title} crumb={m.crumb} right={right} aiOn={aiOn} onToggleAi={toggleAi} />
           <div className="view">
             {loading ? <LoadingView /> : <>
-              {nav === 'today'     && <TodayView setNav={setNav} setCallSel={setCallSel} onRefresh={refreshBookings} />}
+              {nav === 'today'     && <TodayView setNav={setNav} setCallSel={setCallSel} onRefresh={refreshBookings} aiOn={aiOn} />}
               {nav === 'inbox'     && <InboxView selId={callSel} setSelId={setCallSel} onBookingCreated={refreshBookings} onNavCalendar={() => setNav('calendar')} dataVersion={dataVersion} onDemoSeeded={async () => { await Promise.all([refreshCalls(), refreshBookings(), refreshCustomers()]); setDataVersion(v => v + 1); }} />}
               {nav === 'calendar'  && <CalendarView onRefresh={refreshBookings} onRefreshBlocks={refreshBlocks} prefillClient={calPrefill} onPrefillUsed={() => setCalPrefill(null)} />}
               {nav === 'clients'   && <ClientsView onRefresh={refreshCustomers} onNavigate={(view, prefill) => { if (prefill) setCalPrefill(prefill); setNav(view); }} />}

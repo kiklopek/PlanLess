@@ -556,9 +556,9 @@ function StepDone({ data, goTo }) {
         <div className="ob-summary-row">
           <div className="k">Telefon</div>
           <div className="v">
-            {data.phoneMode === 'new'
-              ? <div>Nové číslo PlanLess <span className="mono" style={{ color: 'var(--accent)' }}>+420 277 140 220</span></div>
-              : <div>Přesměrované číslo {data.existingPhone && <span className="mono">{data.existingPhone}</span>}</div>
+            {data.twilioPhone
+              ? <span className="mono" style={{ color: 'var(--accent)' }}>{data.twilioPhone}</span>
+              : <span style={{ color: 'var(--ink-3)' }}>Nezadáno — nastavte v Integrace</span>
             }
           </div>
           <button className="ob-edit-link" onClick={() => goTo(5)}>Upravit</button>

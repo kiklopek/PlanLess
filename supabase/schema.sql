@@ -296,6 +296,9 @@ CREATE INDEX IF NOT EXISTS error_logs_user_id_idx ON public.error_logs(user_id, 
 -- Auto-purge: only keep last 90 days (run periodically via pg_cron if available)
 -- DELETE FROM public.error_logs WHERE created_at < now() - interval '90 days';
 
+-- Customer email (for Google Calendar attendee invites)
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS email text;
+
 -- Allow customers read for public booking page (needed for followups join)
 CREATE POLICY IF NOT EXISTS "customers_public_insert" ON public.customers
   FOR INSERT WITH CHECK (true);
