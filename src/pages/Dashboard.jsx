@@ -256,7 +256,7 @@ const Dock = ({ title, crumb, right, aiOn }) => (
 /* ============================================================
    Today view
    ============================================================ */
-const TodayView = ({ setNav, setCallSel }) => {
+const TodayView = ({ setNav, setCallSel, onNavCalendar }) => {
   const week = getCurrentWeek();
   const liveCall = CALLS.find((c) => c.live);
   const nowH = new Date().getHours() + new Date().getMinutes() / 60;
@@ -337,7 +337,7 @@ const TodayView = ({ setNav, setCallSel }) => {
               <div className="eyebrow">Zbytek odpoledne</div>
               <div className="h-section" style={{ marginTop: 8, fontSize: 18 }}>Co vás dnes čeká</div>
             </div>
-            <Btn variant="ghost" size="sm">Celý kalendář</Btn>
+            <Btn variant="ghost" size="sm" onClick={() => setNav('calendar')}>Celý kalendář</Btn>
           </div>
           <div className="col gap-3">
             {upcoming.map((e, i) => (
@@ -460,7 +460,7 @@ const TranscriptTurn = ({ turn }) => (
   </div>
 );
 
-const CallDetail = ({ call, onBookingCreated }) => {
+const CallDetail = ({ call, onBookingCreated, onNavCalendar }) => {
   const { user } = useAuth();
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [bookNote, setBookNote] = useState('');
@@ -573,8 +573,7 @@ const CallDetail = ({ call, onBookingCreated }) => {
             <div className="muted" style={{ fontSize: 13, marginTop: 4, lineHeight: 1.55 }}>{o.sub}</div>
             {(o.kind === 'booking' || o.kind === 'live') && (
               <div className="row gap-2" style={{ marginTop: 12 }}>
-                <Btn size="sm">Otevřít v kalendáři</Btn>
-                <Btn variant="ghost" icon={I.Edit} size="sm">Upravit</Btn>
+                <Btn size="sm" onClick={() => onNavCalendar?.()}>Otevřít v kalendáři</Btn>
               </div>
             )}
             {o.kind === 'missed' && call.phone && (
@@ -725,8 +724,8 @@ const TodayHero = () => {
             <div style={{ fontSize: 13.5, lineHeight: 1.55 }}>{liveCall.sub || 'Nikola vyřizuje hovor…'}</div>
           </div>
           <div className="row gap-2">
-            <Btn variant="accent" icon={I.Volume} size="sm">Poslouchat živě</Btn>
-            <Btn variant="ghost" icon={I.PhoneOff} size="sm">Převzít hovor</Btn>
+            <Btn variant="accent" icon={I.Volume} size="sm" disabled title="Dostupné po propojení s Twilio">Poslouchat živě</Btn>
+            <Btn variant="ghost" icon={I.PhoneOff} size="sm" disabled title="Dostupné po propojení s Twilio">Převzít hovor</Btn>
           </div>
         </div>
       )}
@@ -734,7 +733,7 @@ const TodayHero = () => {
   );
 };
 
-const InboxView = ({ selId, setSelId, onBookingCreated }) => {
+const InboxView = ({ selId, setSelId, onBookingCreated, onNavCalendar }) => {
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const filtered = useMemo(() => {
@@ -791,7 +790,7 @@ const InboxView = ({ selId, setSelId, onBookingCreated }) => {
             ))}
           </div>
         </div>
-        <CallDetail call={sel} onBookingCreated={onBookingCreated} />
+        <CallDetail call={sel} onBookingCreated={onBookingCreated} onNavCalendar={onNavCalendar} />
       </div>
     </div>
   );
@@ -1943,7 +1942,7 @@ export default function Dashboard() {
           <Dock title={m.title} crumb={m.crumb} right={right} aiOn={aiOn} />
           <div className="view">
             {nav === 'today'    && <TodayView setNav={setNav} setCallSel={setCallSel} />}
-            {nav === 'inbox'    && <InboxView selId={callSel} setSelId={setCallSel} onBookingCreated={refreshBookings} />}
+            {nav === 'inbox'    && <InboxView selId={callSel} setSelId={setCallSel} onBookingCreated={refreshBookings} onNavCalendar={() => setNav('calendar')} />}
             {nav === 'calendar' && <CalendarView onRefresh={refreshBookings} />}
             {nav === 'clients'  && <ClientsView onRefresh={refreshCustomers} onNavigate={setNav} />}
             {nav === 'services' && <ServicesView onRefresh={refreshServices} />}

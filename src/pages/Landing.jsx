@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Icons as I } from '../components/Icons.jsx';
 import '../styles/globals.css';
 import './Landing.css';
@@ -25,7 +26,9 @@ const Nav = () => (
 );
 
 /* ─── Hero ───────────────────────────────────────────────── */
-const Hero = () => (
+const Hero = () => {
+  const navigate = useNavigate();
+  return (
   <section className="hero">
     <div className="wrap">
       <div className="hero-grid">
@@ -42,8 +45,8 @@ const Hero = () => (
             odpověď. Žádné IT, žádné kódy — jen 5 minut nastavení.
           </p>
           <div className="hero-ctas">
-            <button className="btn accent lg">Začít zdarma — 14 dní</button>
-            <button className="btn ghost lg">
+            <button className="btn accent lg" onClick={() => navigate('/register')}>Začít zdarma — 14 dní</button>
+            <button className="btn ghost lg" onClick={() => navigate('/register')}>
               <I.Play s={12} /> Sledovat ukázku (60s)
             </button>
           </div>
@@ -137,7 +140,8 @@ const Hero = () => (
       </div>
     </div>
   </section>
-);
+  );
+};
 
 /* ─── Problem ────────────────────────────────────────────── */
 const Problem = () => (
@@ -808,7 +812,9 @@ const FAQ = () => {
 };
 
 /* ─── Final CTA ───────────────────────────────────────────── */
-const FinalCTA = () => (
+const FinalCTA = () => {
+  const navigate = useNavigate();
+  return (
   <section className="final-cta">
     <div className="wrap">
       <div className="final-card">
@@ -823,15 +829,16 @@ const FinalCTA = () => (
           14 dní zdarma · bez kreditky · nastavení za 5 minut.
         </div>
         <div className="ctas">
-          <button className="btn accent lg">Vyzkoušet zdarma</button>
-          <button className="btn ghost lg">
+          <button className="btn accent lg" onClick={() => navigate('/register')}>Vyzkoušet zdarma</button>
+          <button className="btn ghost lg" onClick={() => navigate('/register')}>
             <I.Play s={12} /> Sledovat ukázku (60s)
           </button>
         </div>
       </div>
     </div>
   </section>
-);
+  );
+};
 
 /* ─── Footer ──────────────────────────────────────────────── */
 const Footer = () => (

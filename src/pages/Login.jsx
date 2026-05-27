@@ -28,6 +28,14 @@ export default function Login() {
     navigate('/app');
   }
 
+  async function handleOAuth(provider) {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: { redirectTo: `${window.location.origin}/app` },
+    });
+    if (error) toast.error(error.message);
+  }
+
   async function handleForgotPassword(e) {
     e.preventDefault();
     if (!email) { toast.error('Zadejte e-mail pro reset hesla.'); return; }
@@ -71,7 +79,7 @@ export default function Login() {
 
               {/* SSO */}
               <div className="login-sso">
-                <button type="button" className="login-sso-btn">
+                <button type="button" className="login-sso-btn" onClick={() => handleOAuth('google')}>
                   <svg width="16" height="16" viewBox="0 0 24 24">
                     <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                     <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -80,7 +88,7 @@ export default function Login() {
                   </svg>
                   Pokračovat přes Google
                 </button>
-                <button type="button" className="login-sso-btn">
+                <button type="button" className="login-sso-btn" onClick={() => handleOAuth('apple')}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.463 1.58-1.518 3.12-.945 1.34-1.93 2.71-3.495 2.71-1.56 0-1.96-.93-3.77-.93-1.766 0-2.4.96-3.83.96-1.57 0-2.66-1.36-3.6-2.7-1.91-2.78-3.39-7.84-1.42-11.27.97-1.69 2.71-2.77 4.59-2.79 1.51-.04 2.95.95 3.97.95 1 0 2.74-.95 4.62-.95.79 0 3.01.12 4.44 2.36-.12.07-2.66 1.59-2.62 4.74.05 3.79 3.36 5.04 3.4 5.05z"/>
                   </svg>

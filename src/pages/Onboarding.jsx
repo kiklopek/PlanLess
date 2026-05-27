@@ -51,11 +51,11 @@ const VOICES = [
   { id: 'david',  name: 'David',  desc: 'Klidný, důvěryhodný, mužský' },
 ];
 
-const TONE_SAMPLES = {
-  warm:   '„Dobrý den, salon Svatopluk, Nikola u telefonu. Jak vám mohu pomoci?"',
-  formal: '„Dobrý den, salon Svatopluk, u telefonu Nikola. S čím mohu posloužit?"',
-  short:  '„Salon Svatopluk, dobrý den."',
-};
+const TONE_SAMPLES = (name) => ({
+  warm:   `„Dobrý den, ${name}, Nikola u telefonu. Jak vám mohu pomoci?"`,
+  formal: `„Dobrý den, ${name}, u telefonu Nikola. S čím mohu posloužit?"`,
+  short:  `„${name}, dobrý den."`,
+});
 
 /* ── Default wizard state ── */
 const DEFAULT_DATA = {
@@ -97,7 +97,7 @@ function NikolaSays({ children }) {
 }
 
 /* ── Step 0: Welcome ── */
-function StepWelcome({ onNext }) {
+function StepWelcome({ onNext, onSkip }) {
   return (
     <div className="ob-welcome">
       <div className="ob-nikola-portrait">N</div>
@@ -120,7 +120,7 @@ function StepWelcome({ onNext }) {
         Pojďme na to <I.ArrowR s={16} />
       </button>
       <div style={{ marginTop: 18 }}>
-        <button className="ob-skip-link" style={{ marginRight: 0 }}>Vyplním později →</button>
+        <button className="ob-skip-link" style={{ marginRight: 0 }} onClick={onSkip}>Vyplním później →</button>
       </div>
     </div>
   );
@@ -479,7 +479,7 @@ function StepVoice({ data, set }) {
             <div className="ic"><I.Phone s={14} /></div>
             <div style={{ flex: 1 }}>
               <div className="lbl">Náhled, jak Nikola pozdraví</div>
-              <div className="body">{TONE_SAMPLES[data.tone]}</div>
+              <div className="body">{TONE_SAMPLES(data.bizName || 'váš salon')[data.tone]}</div>
             </div>
           </div>
         </div>
@@ -590,7 +590,7 @@ function StepDone({ data, goTo }) {
             Zavoláme vám teď na vaše soukromé číslo. Nikola se vám představí jako klient, který chce rezervaci — vyzkoušíte si, jak to bude znít.
           </div>
         </div>
-        <button className="ob-btn ob-btn-accent">
+        <button className="ob-btn ob-btn-accent" disabled title="Dostupné po propojení s Twilio" onClick={() => toast('Testovací hovor bude dostupný po propojení s Twilio.')}>
           <I.Phone s={14} /> Spustit testovací hovor
         </button>
       </div>
@@ -718,7 +718,7 @@ export default function Onboarding() {
 
   const renderStep = () => {
     switch (step) {
-      case 0: return <StepWelcome onNext={next} />;
+      case 0: return <StepWelcome onNext={next} onSkip={() => navigate('/app')} />;
       case 1: return <StepBusiness data={data} set={set} />;
       case 2: return <StepHours data={data} set={set} />;
       case 3: return <StepServices data={data} set={set} />;
