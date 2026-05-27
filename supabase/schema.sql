@@ -313,3 +313,7 @@ CREATE POLICY IF NOT EXISTS "bookings_public_insert" ON public.bookings
 
 -- ElevenLabs + OpenAI telephony
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS elevenlabs_voice_id text;
+
+-- Service descriptions and prep notes (onboarding v2)
+ALTER TABLE public.services ADD COLUMN IF NOT EXISTS description text;
+ALTER TABLE public.services ADD COLUMN IF NOT EXISTS prep_note text;

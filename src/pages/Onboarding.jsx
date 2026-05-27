@@ -15,7 +15,8 @@ const cx = (...a) => a.filter(Boolean).join(' ');
 const STEPS = [
   { id: 'welcome',  title: 'Vítejte' },
   { id: 'biz',      title: 'O firmě' },
-  { id: 'context',  title: 'Pro Nikolu' },
+  { id: 'context',  title: 'Nikola vás pozná' },
+  { id: 'policies', title: 'Pravidla' },
   { id: 'hours',    title: 'Otevírací doba' },
   { id: 'svcs',     title: 'Služby' },
   { id: 'team',     title: 'Tým' },
@@ -49,6 +50,14 @@ const VOICES = [
   { id: 'david',  name: 'David',  desc: 'Klidný, důvěryhodný, mužský' },
 ];
 
+const LANGUAGES = [
+  { id: 'cs', l: 'Čeština' },
+  { id: 'en', l: 'Angličtina' },
+  { id: 'sk', l: 'Slovenština' },
+  { id: 'de', l: 'Němčina' },
+  { id: 'fr', l: 'Francouzština' },
+];
+
 const DEFAULT_DATA = {
   // Step 1 — business
   bizName: '',
@@ -56,18 +65,28 @@ const DEFAULT_DATA = {
   bizAddress: '',
   // Step 2 — context for Nikola
   bizDescription: '',
+  certifications: '',
+  languages: ['cs'],
+  transport: '',
+  giftVouchers: null,
   faq: {
-    parking: null,       // 'yes' | 'no' | null
+    parking: null,
     parkingNote: '',
-    payment: 'both',     // 'both' | 'cash' | 'card'
-    wheelchair: null,    // 'yes' | 'no' | null
+    payment: 'both',
+    wheelchair: null,
   },
-  cancellationPolicy: '24',   // '24' | '48' | '72' | 'free' | 'custom'
+  // Step 3 — policies
+  newClients: 'always',
+  childrenPolicy: 'welcome',
+  deposit: 'none',
+  depositThreshold: '2000',
+  cancellationPolicy: '24',
   cancellationCustom: '',
-  escalationPhone: '',
   leadTimeMinutes: '120',
+  escalationPhone: '',
+  specialRules: '',
   aiNotes: '',
-  // Step 3 — hours
+  // Step 4 — hours
   hours: {
     po: { on: true,  from: '09:00', to: '18:00' },
     ut: { on: true,  from: '09:00', to: '18:00' },
@@ -77,18 +96,18 @@ const DEFAULT_DATA = {
     so: { on: true,  from: '08:00', to: '14:00' },
     ne: { on: false, from: '—',     to: '—'      },
   },
-  // Step 4 — services
+  // Step 5 — services
   services: [
-    { name: '', duration: '', price: '' },
-    { name: '', duration: '', price: '' },
+    { name: '', duration: '', price: '', description: '', prepNote: '' },
+    { name: '', duration: '', price: '', description: '', prepNote: '' },
   ],
-  // Step 5 — team
+  // Step 6 — team
   teamMode: 'solo',
   team: [{ name: '', role: '' }],
-  // Step 6 — voice
+  // Step 7 — voice
   voice: 'nikola',
   tone: 'warm',
-  // Step 7 — phone
+  // Step 8 — phone
   twilioPhone: '',
 };
 
@@ -131,11 +150,11 @@ function StepWelcome({ onNext, onSkip }) {
       <div className="ob-nikola-portrait">N</div>
       <div className="greet">Dobrý den. Já jsem <span className="it">Nikola</span>.</div>
       <div className="intro">
-        Budu vaše AI recepční. Za několik minut mi řekněte vše o vaší firmě — čím víc toho vím, tím lépe odpovím zákazníkům. Pak můžete rovnou zavolat na zkoušku.
+        Budu vaše AI recepční. Za pár minut mi řekněte vše o vaší firmě — čím víc toho vím, tím lépe odpovím zákazníkům. Pak si rovnou zavolejte na zkoušku.
       </div>
       <div className="stats-row">
-        <div className="stat"><div className="n">~7</div><div className="l">minut nastavení</div></div>
-        <div className="stat"><div className="n">9</div><div className="l">jednoduchých kroků</div></div>
+        <div className="stat"><div className="n">~8</div><div className="l">minut nastavení</div></div>
+        <div className="stat"><div className="n">10</div><div className="l">jednoduchých kroků</div></div>
         <div className="stat"><div className="n">0</div><div className="l">technické znalosti</div></div>
       </div>
       <button className="ob-btn ob-btn-accent" style={{ padding: '14px 28px', fontSize: 15 }} onClick={onNext}>
@@ -189,7 +208,7 @@ function StepBusiness({ data, set }) {
         </div>
 
         <div className="ob-field">
-          <div className="ob-field-label">Adresa <span className="serif-it" style={{ color: 'var(--ink-3)', fontSize: 12, marginLeft: 6 }}>volitelné</span></div>
+          <div className="ob-field-label">Adresa <span style={{ color: 'var(--ink-3)', fontSize: 12, marginLeft: 6 }}>volitelné</span></div>
           <input
             className="ob-input"
             placeholder="Dlouhá 21, Praha 1"
@@ -207,50 +226,121 @@ function StepBusiness({ data, set }) {
 function StepContext({ data, set }) {
   const setFaq = (k, v) => set({ faq: { ...data.faq, [k]: v } });
 
+  const toggleLang = (id) => {
+    const next = data.languages.includes(id)
+      ? data.languages.filter(l => l !== id)
+      : [...data.languages, id];
+    if (next.length === 0) return;
+    set({ languages: next });
+  };
+
+  const bizDescPlaceholder = {
+    salon: 'Jsme rodinné kadeřnictví s 15 lety zkušeností. Specializujeme se na balayage a moderní střihy. Pracujeme výhradně s prémiovou kosmetikou Schwarzkopf.',
+    doc:   'Jsme soukromá zubní ordinace s moderním vybavením. Přijímáme pacienty bez registrace. Specializujeme se na estetickou stomatologii a bělení zubů.',
+    fit:   'Jsme butikové fitness studio s maximálně 8 lidmi na lekci. Nabízíme personal training, pilates a funkční trénink. Každý klient dostane individuální program.',
+    law:   'Poskytujeme právní poradenství v oblasti pracovního a obchodního práva. Nabízíme první konzultaci zdarma. Pracujeme rychle a transparentně.',
+  };
+
   return (
     <>
       <div className="ob-eyebrow">krok 3 — Nikola vás pozná</div>
-      <h1 className="ob-title">Řekněte mi víc <span className="it">o sobě</span></h1>
+      <h1 className="ob-title">Řekněte mi <span className="it">o sobě</span></h1>
       <p className="ob-sub">
-        S těmito informacemi odpovím na 9 z 10 otázek zákazníků — bez nutnosti přepojovat vás.
+        S těmito informacemi odpovím na 9 z 10 zákaznických otázek — bez přepojování.
       </p>
 
       <div className="ob-field-group">
 
         {/* Business description */}
         <div className="ob-field">
-          <div className="ob-field-label">Čím jste výjimeční? <span className="serif-it" style={{ color: 'var(--ink-3)', fontSize: 12, marginLeft: 6 }}>2–3 věty</span></div>
+          <div className="ob-field-label">
+            Čím jste výjimeční?{' '}
+            <span style={{ color: 'var(--ink-3)', fontSize: 12, marginLeft: 6 }}>2–4 věty</span>
+          </div>
           <textarea
             className="ob-input"
-            rows={3}
-            placeholder={
-              data.bizType === 'salon'
-                ? 'Jsme rodinné kadeřnictví s 15 lety zkušeností. Specializujeme se na balayage a moderní střihy. Pracujeme pouze s prémiovou kosmetikou Schwarzkopf.'
-                : data.bizType === 'doc'
-                ? 'Jsme soukromá zubní ordinace s moderním vybavením. Přijímáme pacienty bez registrace. Specializujeme se na estetickou stomatologii.'
-                : 'Popište vaši firmu — speciality, atmosféru, co zákazníci ocení...'
-            }
+            rows={4}
+            placeholder={bizDescPlaceholder[data.bizType] || 'Popište vaši firmu — co nabízíte, co vás odlišuje od konkurence, jaká je atmosféra...'}
             value={data.bizDescription}
             onChange={e => set({ bizDescription: e.target.value })}
           />
-          <div className="ob-field-hint">Toto zákazníkům přečtu, když se zeptají „co u vás nabízíte?"</div>
+          <div className="ob-field-hint">Zákazníkům toto řeknu, když se ptají „co u vás nabízíte?" nebo „proč zrovna vy?"</div>
         </div>
 
-        {/* FAQ toggles */}
+        {/* Certifications */}
         <div className="ob-field">
-          <div className="ob-field-label">Praktické info pro zákazníky</div>
+          <div className="ob-field-label">
+            Certifikáty, ocenění, reference{' '}
+            <span style={{ color: 'var(--ink-3)', fontSize: 12, marginLeft: 6 }}>volitelné</span>
+          </div>
+          <input
+            className="ob-input"
+            placeholder="Certified Balayage Expert · Salon roku 2023 · 500+ spokojených zákazníků"
+            value={data.certifications}
+            onChange={e => set({ certifications: e.target.value })}
+          />
+          <div className="ob-field-hint">Zvyšuje důvěru zákazníků — sdělím to, když se ptají na vaše zkušenosti.</div>
+        </div>
+
+        {/* Languages */}
+        <div className="ob-field">
+          <div className="ob-field-label">Jakými jazyky komunikujete?</div>
+          <div className="ob-faq-opts" style={{ flexWrap: 'wrap' }}>
+            {LANGUAGES.map(l => (
+              <button
+                key={l.id}
+                className={cx('ob-faq-btn', data.languages.includes(l.id) && 'on')}
+                onClick={() => toggleLang(l.id)}
+              >
+                {l.l}
+              </button>
+            ))}
+          </div>
+          <div className="ob-field-hint">„Mluvíte anglicky?" — velmi časté. Zákazníkům řeknu, ve kterých jazycích jim mohu pomoci.</div>
+        </div>
+
+        {/* Transport */}
+        <div className="ob-field">
+          <div className="ob-field-label">
+            Jak se k vám zákazník dostane?{' '}
+            <span style={{ color: 'var(--ink-3)', fontSize: 12, marginLeft: 6 }}>volitelné</span>
+          </div>
+          <input
+            className="ob-input"
+            placeholder="3 minuty od metra Florenc, tramvaj č. 8 zastávka Hlavní nádraží, 200 m od parkoviště Palladium"
+            value={data.transport}
+            onChange={e => set({ transport: e.target.value })}
+          />
+          <div className="ob-field-hint">„Jak se k vám dostanu?" — jedna z nejčastějších otázek, zejména u nových zákazníků.</div>
+        </div>
+
+        {/* Gift vouchers */}
+        <div className="ob-field">
+          <div className="ob-field-label">Dárkové poukazy</div>
+          <FaqToggle
+            label="Prodáváte dárkové poukazy?"
+            value={data.giftVouchers}
+            onChange={v => set({ giftVouchers: v })}
+            options={[{ v: 'yes', l: 'Ano, prodáváme' }, { v: 'no', l: 'Ne' }]}
+          />
+          <div className="ob-field-hint">Zákazníci se ptají zejména kolem Vánoc a Dne matek.</div>
+        </div>
+
+        {/* Practical FAQ */}
+        <div className="ob-field">
+          <div className="ob-field-label">Praktické informace</div>
           <div className="ob-faq-grid">
             <FaqToggle
               label="Parkování"
               value={data.faq.parking}
               onChange={v => setFaq('parking', v)}
-              options={[{ v: 'yes', l: 'Ano' }, { v: 'no', l: 'Ne' }]}
+              options={[{ v: 'yes', l: 'K dispozici' }, { v: 'no', l: 'Není' }]}
             />
             {data.faq.parking === 'yes' && (
               <input
                 className="ob-input"
                 style={{ marginTop: 6, marginLeft: 0 }}
-                placeholder="kde přesně? (volitelné — např. „v ulici za rohem")"
+                placeholder={'Kde přesně? (volitelné — např. "v ulici za rohem zdarma")'}
                 value={data.faq.parkingNote}
                 onChange={e => setFaq('parkingNote', e.target.value)}
               />
@@ -280,15 +370,117 @@ function StepContext({ data, set }) {
           </div>
         </div>
 
-        {/* Cancellation policy */}
+      </div>
+
+      <NikolaSays>
+        Čím víc mi řeknete, tím méně přepojuji. Otázky na parkování, platbu a přístup tvoří přes třetinu všech hovorů — s těmito informacemi je vyřeším za vás.
+      </NikolaSays>
+    </>
+  );
+}
+
+/* ── Step 3: Policies ── */
+function StepPolicies({ data, set }) {
+  return (
+    <>
+      <div className="ob-eyebrow">krok 4 — pravidla</div>
+      <h1 className="ob-title">Vaše <span className="it">pravidla</span></h1>
+      <p className="ob-sub">
+        Zákazníci se ptají na podmínky ještě před rezervací. Dám jim přesnou odpověď, ne „nevím, zavolám vám zpět."
+      </p>
+
+      <div className="ob-field-group">
+
+        {/* New clients */}
+        <div className="ob-field">
+          <div className="ob-field-label">Nový zákazník</div>
+          <div className="ob-faq-opts" style={{ flexWrap: 'wrap' }}>
+            {[
+              { v: 'always',       l: 'Přijímáme kohokoliv' },
+              { v: 'consultation', l: 'Nejprve konzultace' },
+              { v: 'closed',       l: 'Momentálně nepřijímáme' },
+            ].map(o => (
+              <button
+                key={o.v}
+                className={cx('ob-faq-btn', data.newClients === o.v && 'on')}
+                onClick={() => set({ newClients: o.v })}
+              >
+                {o.l}
+              </button>
+            ))}
+          </div>
+          {data.newClients === 'consultation' && (
+            <div className="ob-field-hint">Zákazníkovi řeknu, že pro první návštěvu je potřeba nejprve domluvit konzultaci.</div>
+          )}
+          {data.newClients === 'closed' && (
+            <div className="ob-field-hint">Zákazníkovi sdělím, že momentálně nepřijímáme nové zákazníky.</div>
+          )}
+        </div>
+
+        {/* Children */}
+        <div className="ob-field">
+          <div className="ob-field-label">Děti</div>
+          <div className="ob-faq-opts">
+            {[
+              { v: 'welcome', l: '✓ Vítány' },
+              { v: 'adult',   l: 'Jen s dospělým' },
+              { v: 'no',      l: 'Nevhodné pro děti' },
+            ].map(o => (
+              <button
+                key={o.v}
+                className={cx('ob-faq-btn', data.childrenPolicy === o.v && 'on')}
+                onClick={() => set({ childrenPolicy: o.v })}
+              >
+                {o.l}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Deposit */}
+        <div className="ob-field">
+          <div className="ob-field-label">Záloha</div>
+          <div className="ob-faq-opts" style={{ flexWrap: 'wrap' }}>
+            {[
+              { v: 'none',      l: 'Bez zálohy' },
+              { v: 'firstTime', l: 'Při první návštěvě' },
+              { v: 'large',     l: 'U dražších termínů' },
+              { v: 'always',    l: 'Vždy vyžadujeme' },
+            ].map(o => (
+              <button
+                key={o.v}
+                className={cx('ob-faq-btn', data.deposit === o.v && 'on')}
+                onClick={() => set({ deposit: o.v })}
+              >
+                {o.l}
+              </button>
+            ))}
+          </div>
+          {data.deposit === 'large' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+              <span style={{ fontSize: 13, color: 'var(--ink-2)', whiteSpace: 'nowrap' }}>Záloha u rezervací nad</span>
+              <input
+                className="ob-input"
+                style={{ maxWidth: 110, padding: '9px 12px' }}
+                placeholder="2000"
+                value={data.depositThreshold}
+                onChange={e => set({ depositThreshold: e.target.value })}
+              />
+              <span style={{ fontSize: 13, color: 'var(--ink-2)' }}>Kč</span>
+            </div>
+          )}
+          <div className="ob-field-hint">Zákazníkům toto sdělím při dotazu nebo při potvrzení rezervace.</div>
+        </div>
+
+        {/* Cancellation */}
         <div className="ob-field">
           <div className="ob-field-label">Storno podmínky</div>
           <div className="ob-faq-opts" style={{ flexWrap: 'wrap' }}>
             {[
-              { v: 'free', l: 'Kdykoli zdarma' },
-              { v: '24',   l: '24 h předem' },
-              { v: '48',   l: '48 h předem' },
-              { v: '72',   l: '72 h předem' },
+              { v: 'free',   l: 'Kdykoli zdarma' },
+              { v: '24',     l: '24 h předem' },
+              { v: '48',     l: '48 h předem' },
+              { v: '72',     l: '72 h předem' },
               { v: 'custom', l: 'Vlastní text' },
             ].map(o => (
               <button
@@ -309,7 +501,6 @@ function StepContext({ data, set }) {
               onChange={e => set({ cancellationCustom: e.target.value })}
             />
           )}
-          <div className="ob-field-hint">Zákazníkům toto sdělím, když se zeptají.</div>
         </div>
 
         {/* Lead time */}
@@ -338,7 +529,7 @@ function StepContext({ data, set }) {
         <div className="ob-field">
           <div className="ob-field-label">
             Záložní telefon{' '}
-            <span className="serif-it" style={{ color: 'var(--ink-3)', fontSize: 12, marginLeft: 6 }}>volitelné</span>
+            <span style={{ color: 'var(--ink-3)', fontSize: 12, marginLeft: 6 }}>volitelné</span>
           </div>
           <input
             className="ob-input"
@@ -348,23 +539,35 @@ function StepContext({ data, set }) {
             style={{ maxWidth: 280 }}
             type="tel"
           />
-          <div className="ob-field-hint">Přepojím sem zákazníky, kteří chtějí mluvit s člověkem.</div>
+          <div className="ob-field-hint">Přepojím sem zákazníky, kteří chtějí mluvit s člověkem nebo mají složitý dotaz.</div>
         </div>
 
-        {/* Internal AI notes */}
+        {/* Special rules */}
         <div className="ob-field">
           <div className="ob-field-label">
-            Speciální pokyny pro Nikolu{' '}
-            <span className="serif-it" style={{ color: 'var(--ink-3)', fontSize: 12, marginLeft: 6 }}>volitelné</span>
+            Zvláštní pravidla{' '}
+            <span style={{ color: 'var(--ink-3)', fontSize: 12, marginLeft: 6 }}>volitelné</span>
           </div>
           <textarea
             className="ob-input"
             rows={3}
-            placeholder={
-              'Při barvení se vždy zeptej na délku vlasů.\n' +
-              'Zákazník Petr Novák – VIP, vždy přepojen na mě.\n' +
-              'Nepřijímáme zákazníky se psem v salonu.'
-            }
+            placeholder={'Nepřijímáme zákazníky se psy v salonu.\nPrvní schůzka trvá vždy 90 minut.\nDěti pod 12 let potřebují souhlas rodiče.'}
+            value={data.specialRules}
+            onChange={e => set({ specialRules: e.target.value })}
+          />
+          <div className="ob-field-hint">Každé pravidlo na nový řádek. Toto zákazníkům sdělím, kdykoliv se to hodí.</div>
+        </div>
+
+        {/* AI internal notes */}
+        <div className="ob-field">
+          <div className="ob-field-label">
+            Interní pokyny pro Nikolu{' '}
+            <span style={{ color: 'var(--ink-3)', fontSize: 12, marginLeft: 6 }}>volitelné</span>
+          </div>
+          <textarea
+            className="ob-input"
+            rows={3}
+            placeholder={'Zákazník Petr Novák – VIP klient, vždy přepojen na mě osobně.\nPři objednávce barvení se vždy zeptej na délku vlasů.\nNepřijímáme rezervace na pátek po 17:00 (dětský den).'}
             value={data.aiNotes}
             onChange={e => set({ aiNotes: e.target.value })}
           />
@@ -373,20 +576,20 @@ function StepContext({ data, set }) {
       </div>
 
       <NikolaSays>
-        Čím víc mi řeknete, tím méně budete muset přepojovat. I „jen hotovost" nebo „parkování za rohem" ušetří hodně otázek.
+        Tato pravidla zákazníkům sdělím jistě a přesně. Nikdy neřeknu „nevím" — buď odpovím, nebo přepojím.
       </NikolaSays>
     </>
   );
 }
 
-/* ── Step 3: Hours ── */
+/* ── Step 4: Hours ── */
 function StepHours({ data, set }) {
-  const toggle = (id) => set({ hours: { ...data.hours, [id]: { ...data.hours[id], on: !data.hours[id].on } } });
+  const toggle  = (id) => set({ hours: { ...data.hours, [id]: { ...data.hours[id], on: !data.hours[id].on } } });
   const setTime = (id, k, v) => set({ hours: { ...data.hours, [id]: { ...data.hours[id], [k]: v } } });
 
   return (
     <>
-      <div className="ob-eyebrow">krok 4 — otevírací doba</div>
+      <div className="ob-eyebrow">krok 5 — otevírací doba</div>
       <h1 className="ob-title">Kdy máte <span className="it">otevřeno</span>?</h1>
       <p className="ob-sub">Nikola podle toho nabídne správné termíny. Kdykoliv změníte v Nastavení.</p>
 
@@ -420,60 +623,101 @@ function StepHours({ data, set }) {
   );
 }
 
-/* ── Step 4: Services ── */
+/* ── Step 5: Services ── */
 function StepServices({ data, set }) {
-  const update = (i, k, v) => { const n = [...data.services]; n[i] = { ...n[i], [k]: v }; set({ services: n }); };
-  const remove = (i) => set({ services: data.services.filter((_, j) => j !== i) });
-  const add    = ()  => set({ services: [...data.services, { name: '', duration: '', price: '' }] });
+  const [expanded, setExpanded] = useState({});
+
+  const update  = (i, k, v) => { const n = [...data.services]; n[i] = { ...n[i], [k]: v }; set({ services: n }); };
+  const remove  = (i) => set({ services: data.services.filter((_, j) => j !== i) });
+  const add     = () => set({ services: [...data.services, { name: '', duration: '', price: '', description: '', prepNote: '' }] });
+  const toggleX = (i) => setExpanded(p => ({ ...p, [i]: !p[i] }));
 
   const placeholders = {
-    salon: [['Dámský střih', '60', '650'], ['Barvení', '120', '1200'], ['Foukaná', '30', '350']],
-    doc:   [['Konzultace', '30', ''], ['Čištění zubů', '45', ''], ['Plomba', '60', '']],
-    fit:   [['Osobní trénink', '60', '800'], ['Skupinová lekce', '45', '350'], ['Pilates', '60', '400']],
+    salon: [['Dámský střih', '60', '650'], ['Barvení — balayage', '120', '1200'], ['Foukaná', '30', '350'], ['Barvení — celé', '150', '1800']],
+    doc:   [['Konzultace', '30', ''], ['Čištění zubů', '45', ''], ['Plomba', '60', ''], ['RTG snímek', '15', '']],
+    fit:   [['Osobní trénink', '60', '800'], ['Skupinová lekce', '45', '350'], ['Pilates', '60', '400'], ['Diagnostika', '90', '1200']],
+    rest:  [['Stůl pro 2', '120', ''], ['Stůl pro 4', '120', ''], ['Soukromý salonek', '180', ''], ['Firemní akce', '240', '']],
   };
   const ph = placeholders[data.bizType] ?? [['Název služby', '45', '500']];
 
+  const descPlaceholders = {
+    salon: ['Zahrnuje konzultaci, střih a finální styling.', 'Balayage technika, zahrnuje mytí, barvení a tónování.'],
+    doc:   ['Komplexní vyšetření + plán léčby.', 'Profesionální čištění + fluoridace.'],
+    fit:   ['Individuální tréninkový plán, záloha výsledků.', 'Max. 8 lidí, všechny úrovně.'],
+  };
+  const dph = descPlaceholders[data.bizType] ?? [];
+
+  const prepPlaceholders = {
+    salon: ['Přijďte s čistými, suchými vlasy.', 'Vyhněte se mytí vlasů 2 dny před barvením.'],
+    doc:   ['Přineste kartičku pojišťovny.', 'Přijďte nalačno (nepapejte 2 hodiny předem).'],
+    fit:   ['Noste pohodlné oblečení a sportovní obuv.', 'Přineste si ručník a láhev vody.'],
+  };
+  const pph = prepPlaceholders[data.bizType] ?? [];
+
   return (
     <>
-      <div className="ob-eyebrow">krok 5 — služby</div>
+      <div className="ob-eyebrow">krok 6 — služby</div>
       <h1 className="ob-title">Co u vás <span className="it">nabízíte</span>?</h1>
-      <p className="ob-sub">Stačí 3–6 hlavních služeb. Zbytek doděláte v Nastavení kdykoliv později.</p>
+      <p className="ob-sub">Stačí 3–8 hlavních služeb. Popisy a pokyny výrazně zlepší odpovědi Nikoly zákazníkům.</p>
 
       <div className="ob-svc-list">
         {data.services.map((s, i) => (
-          <div key={i} className="ob-svc-row">
-            <input
-              className="ob-input"
-              placeholder={ph[i]?.[0] ?? 'Název služby'}
-              value={s.name}
-              onChange={e => update(i, 'name', e.target.value)}
-            />
-            <input
-              className="ob-input"
-              placeholder={ph[i] ? `${ph[i][1]} min` : '45 min'}
-              value={s.duration}
-              onChange={e => update(i, 'duration', e.target.value)}
-            />
-            <input
-              className="ob-input"
-              placeholder={ph[i] ? `${ph[i][2]} Kč` : 'Cena'}
-              value={s.price}
-              onChange={e => update(i, 'price', e.target.value)}
-            />
-            <button className="ob-btn-del" onClick={() => remove(i)} title="Odebrat"><I.X s={14} /></button>
+          <div key={i} className="ob-svc-card">
+            <div className="ob-svc-row">
+              <input
+                className="ob-input"
+                placeholder={ph[i]?.[0] ?? 'Název služby'}
+                value={s.name}
+                onChange={e => update(i, 'name', e.target.value)}
+              />
+              <input
+                className="ob-input"
+                placeholder={ph[i] ? `${ph[i][1]} min` : '45 min'}
+                value={s.duration}
+                onChange={e => update(i, 'duration', e.target.value)}
+              />
+              <input
+                className="ob-input"
+                placeholder={ph[i] ? `${ph[i][2]} Kč` : 'Cena'}
+                value={s.price}
+                onChange={e => update(i, 'price', e.target.value)}
+              />
+              <button className="ob-btn-del" onClick={() => remove(i)} title="Odebrat"><I.X s={14} /></button>
+            </div>
+
+            {expanded[i] && (
+              <div className="ob-svc-details">
+                <input
+                  className="ob-input"
+                  placeholder={dph[i] || 'Co je zahrnuto, pro koho je služba vhodná... (volitelné)'}
+                  value={s.description}
+                  onChange={e => update(i, 'description', e.target.value)}
+                />
+                <input
+                  className="ob-input"
+                  placeholder={pph[i] || 'Příprava zákazníka před návštěvou... (volitelné)'}
+                  value={s.prepNote}
+                  onChange={e => update(i, 'prepNote', e.target.value)}
+                />
+              </div>
+            )}
+
+            <button className="ob-svc-expand-btn" onClick={() => toggleX(i)}>
+              {expanded[i] ? '↑ Skrýt detaily' : '+ Přidat popis a pokyny pro zákazníka'}
+            </button>
           </div>
         ))}
         <button className="ob-add-row" onClick={add}><I.Plus s={14} /> Přidat další službu</button>
       </div>
 
       <NikolaSays>
-        Cenu a délku zákazníkům na vyžádání sdělím. Pokud nevíte přesně, zadejte odhad — vždy můžete změnit.
+        Popis „co je zahrnuto" a pokyny „přijďte s čistými vlasy" výrazně snižují počet dotazů před návštěvou.
       </NikolaSays>
     </>
   );
 }
 
-/* ── Step 5: Team ── */
+/* ── Step 6: Team ── */
 function StepTeam({ data, set }) {
   const updateMember = (i, k, v) => { const n = [...data.team]; n[i] = { ...n[i], [k]: v }; set({ team: n }); };
   const removeMember = (i) => set({ team: data.team.filter((_, j) => j !== i) });
@@ -481,7 +725,7 @@ function StepTeam({ data, set }) {
 
   return (
     <>
-      <div className="ob-eyebrow">krok 6 — tým</div>
+      <div className="ob-eyebrow">krok 7 — tým</div>
       <h1 className="ob-title">Kdo u vás <span className="it">pracuje</span>?</h1>
       <p className="ob-sub">
         Když mi řeknete kdo, budu zákazníkům umět nabídnout konkrétní osobu — „chcete u Terezy jako minule?"
@@ -506,7 +750,7 @@ function StepTeam({ data, set }) {
           {data.team.map((m, i) => (
             <div key={i} className="ob-team-row">
               <input className="ob-input" placeholder="Jméno" value={m.name} onChange={e => updateMember(i, 'name', e.target.value)} />
-              <input className="ob-input" placeholder="Co dělá (volitelné)" value={m.role} onChange={e => updateMember(i, 'role', e.target.value)} />
+              <input className="ob-input" placeholder="Specialita nebo role (volitelné)" value={m.role} onChange={e => updateMember(i, 'role', e.target.value)} />
               <button className="ob-btn-del" onClick={() => removeMember(i)}><I.X s={14} /></button>
             </div>
           ))}
@@ -524,7 +768,7 @@ function StepTeam({ data, set }) {
   );
 }
 
-/* ── Step 6: Voice ── */
+/* ── Step 7: Voice ── */
 function StepVoice({ data, set }) {
   const companyName = data.bizName || 'váš salon';
   const TONE_SAMPLES = {
@@ -535,7 +779,7 @@ function StepVoice({ data, set }) {
 
   return (
     <>
-      <div className="ob-eyebrow">krok 7 — hlas</div>
+      <div className="ob-eyebrow">krok 8 — hlas</div>
       <h1 className="ob-title">Jak mám <span className="it">znít</span>?</h1>
       <p className="ob-sub">Vyberte hlas a tón. Kdykoliv změníte v Nastavení → AI.</p>
 
@@ -575,11 +819,11 @@ function StepVoice({ data, set }) {
   );
 }
 
-/* ── Step 7: Phone ── */
+/* ── Step 8: Phone ── */
 function StepPhone({ data, set }) {
   return (
     <>
-      <div className="ob-eyebrow">krok 8 — telefon</div>
+      <div className="ob-eyebrow">krok 9 — telefon</div>
       <h1 className="ob-title">Připojte <span className="it">Twilio</span> číslo</h1>
       <p className="ob-sub">
         Nikola přijímá hovory přes Twilio. Tento krok můžete přeskočit a doplnit v Nastavení → Integrace.
@@ -622,16 +866,20 @@ function StepPhone({ data, set }) {
   );
 }
 
-/* ── Step 8: Done ── */
+/* ── Step 9: Done ── */
 function StepDone({ data, goTo }) {
-  const bizTypeName = BIZ_TYPES.find(t => t.id === data.bizType)?.name || '—';
-  const openDays    = DAYS.filter(d => data.hours[d.id]?.on);
-  const voiceName   = VOICES.find(v => v.id === data.voice)?.name;
-  const cancelLabels = { free: 'Kdykoli zdarma', '24': '24 h předem', '48': '48 h předem', '72': '72 h předem', custom: data.cancellationCustom || 'Vlastní' };
+  const bizTypeName   = BIZ_TYPES.find(t => t.id === data.bizType)?.name || '—';
+  const openDays      = DAYS.filter(d => data.hours[d.id]?.on);
+  const voiceName     = VOICES.find(v => v.id === data.voice)?.name;
+  const cancelLabels  = { free: 'Kdykoli zdarma', '24': '24 h předem', '48': '48 h předem', '72': '72 h předem', custom: data.cancellationCustom || 'Vlastní' };
   const paymentLabels = { both: 'Hotovost i karta', cash: 'Jen hotovost', card: 'Jen karta' };
-  const toneNames   = { warm: 'Vřelý', formal: 'Formální', short: 'Krátký' };
+  const toneNames     = { warm: 'Vřelý', formal: 'Formální', short: 'Krátký' };
+  const depositLabels = { none: 'Bez zálohy', firstTime: 'Při první návštěvě', large: `Nad ${data.depositThreshold} Kč`, always: 'Vždy' };
+  const newClientsLabels = { always: 'Kohokoliv přijímáme', consultation: 'Nejprve konzultace', closed: 'Momentálně nepřijímáme' };
+  const childrenLabels = { welcome: 'Děti vítány', adult: 'Jen s dospělým', no: 'Nevhodné pro děti' };
+  const langNames     = { cs: 'CS', en: 'EN', sk: 'SK', de: 'DE', fr: 'FR' };
 
-  const Row = ({ label, children, onEdit, editStep }) => (
+  const Row = ({ label, children, editStep }) => (
     <div className="ob-summary-row">
       <div className="k">{label}</div>
       <div className="v">{children}</div>
@@ -641,7 +889,7 @@ function StepDone({ data, goTo }) {
 
   return (
     <>
-      <div className="ob-eyebrow">krok 9 — hotovo</div>
+      <div className="ob-eyebrow">krok 10 — hotovo</div>
       <h1 className="ob-title"><span className="it">Hotovo.</span><br />Nikola je připravená.</h1>
       <p className="ob-sub">Tady je, co jsem si o vás zapamatovala. Vše můžete kdykoliv upravit.</p>
 
@@ -653,21 +901,26 @@ function StepDone({ data, goTo }) {
 
         <Row label="O firmě" editStep={2}>
           {data.bizDescription
-            ? <div style={{ fontSize: 13, lineHeight: 1.55 }}>{data.bizDescription.slice(0, 120)}{data.bizDescription.length > 120 ? '…' : ''}</div>
+            ? <div style={{ fontSize: 13, lineHeight: 1.55 }}>{data.bizDescription.slice(0, 140)}{data.bizDescription.length > 140 ? '…' : ''}</div>
             : <span style={{ color: 'var(--ink-3)' }}>Nevyplněno — doplňte v Nastavení → AI</span>
           }
           <div className="secondary" style={{ marginTop: 4 }}>
-            {paymentLabels[data.faq.payment]}
-            {data.faq.parking === 'yes' && ' · Parkování k dispozici'}
-            {data.faq.parking === 'no'  && ' · Bez parkování'}
+            {data.languages.map(l => langNames[l]).join(' · ')}
+            {paymentLabels[data.faq.payment] && ' · ' + paymentLabels[data.faq.payment]}
+            {data.giftVouchers === 'yes' && ' · Dárkové poukazy'}
           </div>
         </Row>
 
-        <Row label="Storno" editStep={2}>
-          {cancelLabels[data.cancellationPolicy] || '—'}
+        <Row label="Pravidla" editStep={3}>
+          <div>{newClientsLabels[data.newClients]}</div>
+          <div className="secondary">
+            {cancelLabels[data.cancellationPolicy]}
+            {data.deposit !== 'none' && ' · Záloha: ' + depositLabels[data.deposit]}
+            {' · ' + childrenLabels[data.childrenPolicy]}
+          </div>
         </Row>
 
-        <Row label="Otevírací doba" editStep={3}>
+        <Row label="Otevírací doba" editStep={4}>
           {openDays.length === 0
             ? '—'
             : openDays.map(d => (
@@ -676,16 +929,21 @@ function StepDone({ data, goTo }) {
           }
         </Row>
 
-        <Row label="Služby" editStep={4}>
+        <Row label="Služby" editStep={5}>
           {data.services.filter(s => s.name).length === 0
             ? <span style={{ color: 'var(--ink-3)' }}>zatím žádné — doplníte v Nastavení</span>
             : data.services.filter(s => s.name).map((s, i) => (
-                <div key={i}>{s.name}{s.price && ' · ' + s.price + ' Kč'}{s.duration && ' · ' + s.duration + ' min'}</div>
+                <div key={i}>
+                  {s.name}
+                  {s.price && ' · ' + s.price + ' Kč'}
+                  {s.duration && ' · ' + s.duration + ' min'}
+                  {s.description && <span style={{ color: 'var(--ink-3)', marginLeft: 6 }}>✓ popis</span>}
+                </div>
               ))
           }
         </Row>
 
-        <Row label="Tým" editStep={5}>
+        <Row label="Tým" editStep={6}>
           {data.teamMode === 'solo'
             ? 'Pracuji sám/sama'
             : data.team.filter(m => m.name).length === 0
@@ -694,11 +952,11 @@ function StepDone({ data, goTo }) {
           }
         </Row>
 
-        <Row label="Hlas" editStep={6}>
+        <Row label="Hlas" editStep={7}>
           {voiceName} · <span style={{ color: 'var(--ink-3)' }}>{toneNames[data.tone]}</span>
         </Row>
 
-        <Row label="Telefon" editStep={7}>
+        <Row label="Telefon" editStep={8}>
           {data.twilioPhone
             ? <span className="mono" style={{ color: 'var(--accent)' }}>{data.twilioPhone}</span>
             : <span style={{ color: 'var(--ink-3)' }}>Nezadáno — nastavte v Nastavení → Integrace</span>
@@ -706,7 +964,7 @@ function StepDone({ data, goTo }) {
         </Row>
 
         {data.escalationPhone && (
-          <Row label="Záložní tel." editStep={2}>
+          <Row label="Záložní tel." editStep={3}>
             <span className="mono">{data.escalationPhone}</span>
           </Row>
         )}
@@ -790,7 +1048,10 @@ function buildWorkingHours(hours) {
 function buildCompanyDescription(data) {
   const parts = [];
   if (data.bizDescription) parts.push(data.bizDescription);
-  if (data.bizAddress) parts.push(`Adresa: ${data.bizAddress}.`);
+  if (data.certifications)  parts.push(`Certifikáty a ocenění: ${data.certifications}.`);
+  if (data.bizAddress)      parts.push(`Adresa: ${data.bizAddress}.`);
+  if (data.transport)       parts.push(`Doprava: ${data.transport}.`);
+
   const { faq } = data;
   if (faq.parking === 'yes') parts.push(faq.parkingNote ? `Parkování: ${faq.parkingNote}.` : 'Parkování k dispozici.');
   if (faq.parking === 'no')  parts.push('Parkování u nás není k dispozici.');
@@ -798,16 +1059,50 @@ function buildCompanyDescription(data) {
   if (pm[faq.payment]) parts.push(pm[faq.payment]);
   if (faq.wheelchair === 'yes') parts.push('Bezbariérový přístup.');
   if (faq.wheelchair === 'no')  parts.push('Přístup není bezbariérový.');
+
+  const langNames = { cs: 'čeština', en: 'angličtina', sk: 'slovenština', de: 'němčina', fr: 'francouzština' };
+  const langs = data.languages.map(l => langNames[l] || l);
+  if (langs.length) parts.push(`Komunikační jazyky: ${langs.join(', ')}.`);
+
+  if (data.giftVouchers === 'yes') parts.push('Nabízíme dárkové poukazy.');
+  if (data.giftVouchers === 'no')  parts.push('Dárkové poukazy neposkytujeme.');
+
   return parts.join(' ') || null;
 }
 
 function buildAiNotes(data) {
   const parts = [];
+
   if (data.teamMode === 'team') {
     const members = data.team.filter(m => m.name);
     if (members.length) parts.push(`Zaměstnanci: ${members.map(m => m.role ? `${m.name} (${m.role})` : m.name).join(', ')}.`);
   }
-  if (data.aiNotes) parts.push(data.aiNotes);
+
+  const newClientsMap = {
+    always:       'Přijímáme nové zákazníky bez omezení.',
+    consultation: 'Noví zákazníci musí nejprve absolvovat konzultaci — teprve pak mohou rezervovat.',
+    closed:       'V současné době nepřijímáme nové zákazníky.',
+  };
+  if (newClientsMap[data.newClients]) parts.push(newClientsMap[data.newClients]);
+
+  const childrenMap = {
+    welcome: 'Děti jsou vítány.',
+    adult:   'Děti pouze v doprovodu dospělé osoby.',
+    no:      'Provozovna není vhodná pro děti.',
+  };
+  if (childrenMap[data.childrenPolicy]) parts.push(childrenMap[data.childrenPolicy]);
+
+  const depositMap = {
+    none:      'Záloha není vyžadována.',
+    firstTime: 'Záloha je vyžadována při první rezervaci.',
+    large:     `Záloha je vyžadována u rezervací nad ${data.depositThreshold || '2000'} Kč.`,
+    always:    'Záloha je vyžadována u každé rezervace.',
+  };
+  if (depositMap[data.deposit]) parts.push(depositMap[data.deposit]);
+
+  if (data.specialRules) parts.push(data.specialRules);
+  if (data.aiNotes)      parts.push(data.aiNotes);
+
   return parts.join('\n') || null;
 }
 
@@ -824,13 +1119,12 @@ function buildCancellationPolicy(data) {
 
 /* ── Main ── */
 export default function Onboarding() {
-  const navigate = useNavigate();
-  const [step, setStep]   = useState(0);
-  const [data, setData]   = useState(DEFAULT_DATA);
+  const navigate  = useNavigate();
+  const [step, setStep]     = useState(0);
+  const [data, setData]     = useState(DEFAULT_DATA);
   const [saving, setSaving] = useState(false);
 
-  const set = (patch) => setData(d => ({ ...d, ...patch }));
-
+  const set  = (patch) => setData(d => ({ ...d, ...patch }));
   const next = () => setStep(s => Math.min(STEPS.length - 1, s + 1));
   const back = () => setStep(s => Math.max(0, s - 1));
   const goTo = (i) => setStep(i);
@@ -852,33 +1146,33 @@ export default function Onboarding() {
       if (!user) { navigate('/login'); return; }
 
       await saveCompanySettings(user.id, {
-        company_name:          data.bizName || null,
-        company_description:   buildCompanyDescription(data),
-        ai_notes:              buildAiNotes(data),
-        cancellation_policy:   buildCancellationPolicy(data),
-        escalation_phone:      data.escalationPhone || null,
-        lead_time_minutes:     parseInt(data.leadTimeMinutes) || 120,
+        company_name:             data.bizName || null,
+        company_description:      buildCompanyDescription(data),
+        ai_notes:                 buildAiNotes(data),
+        cancellation_policy:      buildCancellationPolicy(data),
+        escalation_phone:         data.escalationPhone || null,
+        lead_time_minutes:        parseInt(data.leadTimeMinutes) || 120,
         max_booking_horizon_days: 60,
-        timezone:              'Europe/Prague',
-        working_hours:         buildWorkingHours(data.hours),
-        ai_voice:              data.voice,
-        ai_tone:               data.tone,
-        onboarding_completed:  true,
+        timezone:                 'Europe/Prague',
+        working_hours:            buildWorkingHours(data.hours),
+        ai_voice:                 data.voice,
+        ai_tone:                  data.tone,
+        onboarding_completed:     true,
         ...(data.twilioPhone ? { twilio_phone_number: data.twilioPhone } : {}),
       });
 
-      // Create services
       const validServices = data.services.filter(s => s.name.trim());
       await Promise.all(validServices.map(s =>
         createService({
-          name:           s.name.trim(),
-          price:          parseFloat(s.price) || null,
-          duration_min:   parseInt(s.duration) || 60,
+          name:             s.name.trim(),
+          price:            parseFloat(s.price) || null,
+          duration_min:     parseInt(s.duration) || 60,
           buffer_after_min: 0,
+          description:      s.description.trim() || null,
+          prep_note:        s.prepNote.trim() || null,
         })
       ));
 
-      // Create staff members (only if team mode)
       if (data.teamMode === 'team') {
         const validMembers = data.team.filter(m => m.name.trim());
         await Promise.all(validMembers.map(m =>
@@ -896,15 +1190,16 @@ export default function Onboarding() {
 
   const renderStep = () => {
     switch (step) {
-      case 0: return <StepWelcome onNext={next} onSkip={handleSkip} />;
+      case 0: return <StepWelcome  onNext={next} onSkip={handleSkip} />;
       case 1: return <StepBusiness data={data} set={set} />;
       case 2: return <StepContext  data={data} set={set} />;
-      case 3: return <StepHours   data={data} set={set} />;
-      case 4: return <StepServices data={data} set={set} />;
-      case 5: return <StepTeam    data={data} set={set} />;
-      case 6: return <StepVoice   data={data} set={set} />;
-      case 7: return <StepPhone   data={data} set={set} />;
-      case 8: return <StepDone    data={data} goTo={goTo} />;
+      case 3: return <StepPolicies data={data} set={set} />;
+      case 4: return <StepHours    data={data} set={set} />;
+      case 5: return <StepServices data={data} set={set} />;
+      case 6: return <StepTeam     data={data} set={set} />;
+      case 7: return <StepVoice    data={data} set={set} />;
+      case 8: return <StepPhone    data={data} set={set} />;
+      case 9: return <StepDone     data={data} goTo={goTo} />;
       default: return null;
     }
   };
@@ -912,7 +1207,7 @@ export default function Onboarding() {
   const isLastStep   = step === STEPS.length - 1;
   const nextDisabled = (step === 1 && (!data.bizName || !data.bizType)) || saving;
   const showFooter   = step !== 0;
-  const showSkip     = step >= 2 && step <= 7;
+  const showSkip     = step >= 2 && step <= 8;
 
   return (
     <>
