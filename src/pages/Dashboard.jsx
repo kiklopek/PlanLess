@@ -9,7 +9,7 @@ import { fetchCustomers, upsertCustomer, deleteCustomerByPhone, fetchCustomerSta
 import { fetchServices, createService, updateService, deleteService } from '../lib/servicesDb.js';
 import { fetchBookings, createBooking, deleteBooking, clearCachedBookings } from '../lib/bookingsDb.js';
 import { fetchBlocks, createBlock, deleteBlock, clearCachedBlocks } from '../lib/blocksDb.js';
-import { createFollowup } from '../lib/followupsDb.js';
+import { createFollowup, fetchFollowups, cancelFollowup, retryFollowup } from '../lib/followupsDb.js';
 import { getCompanySettings, saveCompanySettings } from '../lib/companySettings.js';
 import { supabase } from '../lib/supabase.js';
 import { SuggestedSlots } from '../components/SuggestedSlots.jsx';
@@ -227,6 +227,7 @@ const NAV = [
   { id: 'clients',   label: 'Klienti',   icon: I.Users },
   { id: 'services',  label: 'Služby',    icon: I.Scissors },
   { id: 'analytics', label: 'Statistiky', icon: I.BarChart },
+  { id: 'messages',  label: 'Zprávy',    icon: I.Message },
 ];
 
 /* ============================================================
@@ -1332,6 +1333,9 @@ const ClientsView = ({ onRefresh, onNavigate }) => {
   const [form, setForm] = useState({ name: '', phone: '', email: '', vip: false });
   const [saving, setSaving] = useState(false);
   const [clientStats, setClientStats] = useState({ visits: 0, spend: 0 });
+  const [smsModal, setSmsModal] = useState(false);
+  const [smsText, setSmsText] = useState('');
+  const [smsSending, setSmsSending] = useState(false);
   const filtered = q
     ? CLIENTS.filter((c) => c.name.toLowerCase().includes(q.toLowerCase()) || (c.phone || '').includes(q))
     : CLIENTS;
@@ -1370,6 +1374,20 @@ const ClientsView = ({ onRefresh, onNavigate }) => {
     } catch (e) {
       toast.error(e.message || 'Chyba při mazání.');
     }
+  };
+
+  const sendClientSms = async () => {
+    if (!smsText.trim()) { toast.error('Zadejte text zprávy.'); return; }
+    setSmsSending(true);
+    try {
+      await createFollowup({ customer_id: client?.id ?? null, channel: 'sms', message: smsText.trim(), metadata: { to: client?.phone } });
+      toast.success('SMS zařazena do fronty.');
+      setSmsModal(false);
+      setSmsText('');
+    } catch (e) {
+      toast.error(e.message || 'Chyba při odesílání.');
+    }
+    setSmsSending(false);
   };
 
   const inputStyle = { background: 'transparent', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink)', width: '100%' };
@@ -1447,10 +1465,23 @@ const ClientsView = ({ onRefresh, onNavigate }) => {
                     <Btn icon={I.Phone} size="sm">Zavolat</Btn>
                   </a>
                 )}
+                {client.phone && (
+                  <Btn icon={I.Message} size="sm" onClick={() => { setSmsText(''); setSmsModal(v => !v); }}>SMS</Btn>
+                )}
                 <Btn variant="accent" icon={I.Plus} size="sm" onClick={() => onNavigate('calendar', { note: client.name, phone: client.phone })}>Rezervovat</Btn>
                 <Btn variant="ghost" icon={I.X} size="sm" onClick={() => removeClient(client.phone)} />
               </div>
             </div>
+            {smsModal && (
+              <div style={{ marginTop: 16, padding: 14, background: 'var(--paper-2, var(--paper))', borderRadius: 10, border: '1px solid var(--line)' }}>
+                <div className="eyebrow" style={{ marginBottom: 10 }}>SMS pro {client.name}</div>
+                <textarea value={smsText} onChange={e => setSmsText(e.target.value)} rows={3} placeholder="Text zprávy…" style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--paper)', color: 'var(--ink)', fontFamily: 'inherit', fontSize: 13, resize: 'vertical', boxSizing: 'border-box', outline: 'none' }} autoFocus />
+                <div className="row gap-2" style={{ marginTop: 8 }}>
+                  <Btn variant="accent" size="sm" onClick={sendClientSms} disabled={smsSending || !smsText.trim()}>{smsSending ? 'Odesílám…' : 'Odeslat SMS'}</Btn>
+                  <Btn variant="ghost" size="sm" onClick={() => setSmsModal(false)}>Zrušit</Btn>
+                </div>
+              </div>
+            )}
             {client.note && (
               <div className="note" style={{ marginTop: 22 }}>
                 <div className="ic"><I.Sparkle s={16} /></div>
@@ -1682,6 +1713,8 @@ const SetAI = ({ user, companySettings, onSettingsSaved }) => {
   const [confirmSms, setConfirmSms] = useState(() => companySettings?.ai_confirm_sms ?? true);
   const [reminderEnabled, setReminderEnabled] = useState(() => companySettings?.reminder_enabled !== false);
   const [aiPaused, setAiPaused] = useState(() => companySettings?.ai_paused ?? false);
+  const [confirmTemplate, setConfirmTemplate] = useState(() => companySettings?.sms_confirm_template ?? '');
+  const [reminderTemplate, setReminderTemplate] = useState(() => companySettings?.sms_reminder_template ?? '');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -1692,6 +1725,8 @@ const SetAI = ({ user, companySettings, onSettingsSaved }) => {
     setConfirmSms(companySettings.ai_confirm_sms ?? true);
     setReminderEnabled(companySettings.reminder_enabled !== false);
     setAiPaused(companySettings.ai_paused ?? false);
+    setConfirmTemplate(companySettings.sms_confirm_template ?? '');
+    setReminderTemplate(companySettings.sms_reminder_template ?? '');
   }, [companySettings]);
 
   const companyName = companySettings?.company_name || 'váš salon';
@@ -1700,7 +1735,7 @@ const SetAI = ({ user, companySettings, onSettingsSaved }) => {
     if (!user) return;
     setSaving(true);
     try {
-      const saved = await saveCompanySettings(user.id, { ...(companySettings ?? {}), ai_voice: voice, ai_tone: tone, ai_auto_book: autoBook, ai_confirm_sms: confirmSms, reminder_enabled: reminderEnabled, ai_paused: aiPaused });
+      const saved = await saveCompanySettings(user.id, { ...(companySettings ?? {}), ai_voice: voice, ai_tone: tone, ai_auto_book: autoBook, ai_confirm_sms: confirmSms, reminder_enabled: reminderEnabled, ai_paused: aiPaused, sms_confirm_template: confirmTemplate.trim() || null, sms_reminder_template: reminderTemplate.trim() || null });
       onSettingsSaved?.(saved);
       toast.success('Nastavení AI uloženo.');
     } catch (e) {
@@ -1787,6 +1822,34 @@ const SetAI = ({ user, companySettings, onSettingsSaved }) => {
           <div className="desc">Hovory se přepojí přímo na váš telefon.</div>
         </div>
         <Switch on={aiPaused} onChange={setAiPaused} />
+      </div>
+      <div style={{ borderTop: '1px solid var(--line)', paddingTop: 20, marginTop: 4 }}>
+        <div className="eyebrow" style={{ marginBottom: 14 }}>Šablony SMS zpráv</div>
+        <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.55, marginBottom: 16 }}>
+          Použijte <code style={{ background: 'var(--paper-2, var(--paper))', padding: '1px 5px', borderRadius: 4 }}>{'{name}'}</code>, <code style={{ background: 'var(--paper-2, var(--paper))', padding: '1px 5px', borderRadius: 4 }}>{'{service}'}</code>, <code style={{ background: 'var(--paper-2, var(--paper))', padding: '1px 5px', borderRadius: 4 }}>{'{date}'}</code> jako proměnné. Prázdné pole = výchozí text AI.
+        </div>
+        <div className="col gap-3">
+          <label className="col gap-2">
+            <span className="lbl">Potvrzení rezervace</span>
+            <textarea
+              value={confirmTemplate}
+              onChange={e => setConfirmTemplate(e.target.value)}
+              rows={3}
+              placeholder={`Dobrý den, {name}! Potvrzujeme vaši rezervaci: {service} — {date}. Těšíme se na vás!`}
+              style={{ padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--paper)', color: 'var(--ink)', fontFamily: 'inherit', fontSize: 13, resize: 'vertical', outline: 'none', width: '100%', boxSizing: 'border-box' }}
+            />
+          </label>
+          <label className="col gap-2">
+            <span className="lbl">Připomínka rezervace</span>
+            <textarea
+              value={reminderTemplate}
+              onChange={e => setReminderTemplate(e.target.value)}
+              rows={3}
+              placeholder={`Připomínáme zítřejší rezervaci: {service} — {date}. V případě změny nás kontaktujte.`}
+              style={{ padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--paper)', color: 'var(--ink)', fontFamily: 'inherit', fontSize: 13, resize: 'vertical', outline: 'none', width: '100%', boxSizing: 'border-box' }}
+            />
+          </label>
+        </div>
       </div>
       <div className="form-row">
         <div style={{ marginTop: 8 }}>
@@ -2976,6 +3039,146 @@ const AnalyticsView = () => {
   );
 };
 
+/* ============================================================
+   Messages view — SMS / followup history
+   ============================================================ */
+const STATUS_FOLLOWUP = {
+  queued:    { label: 'Ve frontě',   v: 'info'  },
+  sending:   { label: 'Odesílá se',  v: 'live'  },
+  sent:      { label: 'Odesláno',    v: 'accent' },
+  failed:    { label: 'Selhalo',     v: 'bad'   },
+  cancelled: { label: 'Zrušeno',     v: ''      },
+};
+
+const MessagesView = ({ onSendSms }) => {
+  const [followups, setFollowups] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [compose, setCompose] = useState(false);
+  const [composePhone, setComposePhone] = useState('');
+  const [composeText, setComposeText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [filterStatus, setFilterStatus] = useState('all');
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await fetchFollowups(200);
+      setFollowups(data);
+    } catch { setFollowups([]); }
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const rows = filterStatus === 'all' ? followups : followups.filter(f => f.status === filterStatus);
+
+  const handleCancel = async (id) => {
+    try {
+      await cancelFollowup(id);
+      setFollowups(prev => prev.map(f => f.id === id ? { ...f, status: 'cancelled' } : f));
+      toast.success('Zpráva zrušena.');
+    } catch (e) { toast.error(e.message); }
+  };
+
+  const handleRetry = async (id) => {
+    try {
+      await retryFollowup(id);
+      setFollowups(prev => prev.map(f => f.id === id ? { ...f, status: 'queued' } : f));
+      toast.success('Zpráva přidána zpět do fronty.');
+    } catch (e) { toast.error(e.message); }
+  };
+
+  const handleSend = async () => {
+    if (!composePhone.trim() || !composeText.trim()) { toast.error('Vyplňte telefon a text.'); return; }
+    setSending(true);
+    try {
+      await createFollowup({ channel: 'sms', message: composeText.trim(), metadata: { to: composePhone.trim() } });
+      toast.success('SMS zařazena do fronty.');
+      setCompose(false);
+      setComposePhone(''); setComposeText('');
+      await load();
+    } catch (e) { toast.error(e.message); }
+    setSending(false);
+  };
+
+  const inputSt = { background: 'transparent', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink)', width: '100%' };
+
+  return (
+    <div style={{ maxWidth: 760, margin: '0 auto' }}>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <div className="h-section" style={{ fontSize: 20 }}>Zprávy</div>
+        <Btn variant="accent" icon={I.Plus} size="sm" onClick={() => setCompose(v => !v)}>Nová SMS</Btn>
+      </div>
+
+      {compose && (
+        <div className="card" style={{ marginBottom: 16, padding: 18 }}>
+          <div className="eyebrow" style={{ marginBottom: 12 }}>Odeslat SMS</div>
+          <div className="col gap-2" style={{ marginBottom: 14 }}>
+            <div className="field" style={{ padding: '8px 12px' }}>
+              <I.Phone s={14} />
+              <input placeholder="Telefonní číslo příjemce" value={composePhone} onChange={e => setComposePhone(e.target.value)} style={inputSt} autoFocus />
+            </div>
+            <textarea value={composeText} onChange={e => setComposeText(e.target.value)} rows={3} placeholder="Text zprávy…" style={{ ...inputSt, padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--paper)', resize: 'vertical' }} />
+            <div className="muted" style={{ fontSize: 12, textAlign: 'right' }}>{composeText.length} znaků</div>
+          </div>
+          <div className="row gap-2">
+            <Btn variant="accent" size="sm" onClick={handleSend} disabled={sending}>{sending ? 'Odesílám…' : 'Zařadit do fronty'}</Btn>
+            <Btn variant="ghost" size="sm" onClick={() => setCompose(false)}>Zrušit</Btn>
+          </div>
+        </div>
+      )}
+
+      <div className="seg" style={{ marginBottom: 16 }}>
+        {['all', 'queued', 'sent', 'failed'].map(s => (
+          <button key={s} className={cx(filterStatus === s && 'on')} onClick={() => setFilterStatus(s)}>
+            {s === 'all' ? 'Vše' : STATUS_FOLLOWUP[s]?.label ?? s}
+          </button>
+        ))}
+      </div>
+
+      {loading && <div className="muted" style={{ padding: '40px 0', textAlign: 'center', fontSize: 13 }}>Načítám…</div>}
+      {!loading && rows.length === 0 && (
+        <div className="muted" style={{ padding: '40px 0', textAlign: 'center', fontSize: 13 }}>
+          Zatím žádné zprávy. SMS potvrzení a připomínky se zobrazí zde.
+        </div>
+      )}
+
+      {!loading && rows.length > 0 && (
+        <div className="col gap-2">
+          {rows.map(f => {
+            const st = STATUS_FOLLOWUP[f.status] ?? { label: f.status, v: '' };
+            const recipient = f.customers?.name || f.customers?.phone || f.metadata?.to || '—';
+            const ts = f.sent_at || f.scheduled_at || f.created_at;
+            return (
+              <div key={f.id} className="card thin" style={{ padding: '14px 16px' }}>
+                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="row gap-2" style={{ marginBottom: 6, alignItems: 'center' }}>
+                      <Tag variant={st.v}>{st.label}</Tag>
+                      <span className="muted" style={{ fontSize: 12 }}>{recipient}</span>
+                      <span className="muted" style={{ fontSize: 11, marginLeft: 'auto' }}>{ts ? new Date(ts).toLocaleString('cs-CZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                    </div>
+                    <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{f.message}</div>
+                    {f.last_error && <div style={{ fontSize: 12, color: '#f87171', marginTop: 4 }}>{f.last_error}</div>}
+                  </div>
+                  <div className="row gap-1" style={{ flexShrink: 0 }}>
+                    {(f.status === 'failed' || f.status === 'cancelled') && (
+                      <Btn variant="ghost" size="sm" icon={I.Sparkle} onClick={() => handleRetry(f.id)} title="Zkusit znovu" />
+                    )}
+                    {(f.status === 'queued') && (
+                      <Btn variant="ghost" size="sm" icon={I.X} onClick={() => handleCancel(f.id)} title="Zrušit" />
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const SettingsView = () => {
   const { user } = useAuth();
   const [tab, setTab] = useState('company');
@@ -3340,6 +3543,7 @@ export default function Dashboard() {
               {nav === 'clients'   && <ClientsView onRefresh={refreshCustomers} onNavigate={(view, prefill) => { if (prefill) setCalPrefill(prefill); setNav(view); }} />}
               {nav === 'services'  && <ServicesView onRefresh={refreshServices} />}
               {nav === 'analytics' && <AnalyticsView />}
+              {nav === 'messages'  && <MessagesView />}
               {nav === 'settings' && <SettingsView />}
             </>}
           </div>

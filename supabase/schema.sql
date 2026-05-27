@@ -269,6 +269,14 @@ ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS booking_page_enable
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS booking_page_title text;
 CREATE UNIQUE INDEX IF NOT EXISTS company_settings_booking_slug_idx ON public.company_settings(booking_slug) WHERE booking_slug IS NOT NULL;
 
+-- Phase 8: SMS templates
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS sms_confirm_template text;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS sms_reminder_template text;
+
+-- Allow customers read for public booking page (needed for followups join)
+CREATE POLICY IF NOT EXISTS "customers_public_insert" ON public.customers
+  FOR INSERT WITH CHECK (true);
+
 -- Allow anonymous reads for public booking page
 CREATE POLICY IF NOT EXISTS "company_settings_public_read" ON public.company_settings
   FOR SELECT USING (booking_slug IS NOT NULL AND booking_page_enabled = true);

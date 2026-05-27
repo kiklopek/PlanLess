@@ -44,6 +44,18 @@ export async function cancelFollowup(id) {
   if (!data) throw new Error('Follow-up nelze zrušit (už není ve frontě).')
 }
 
+export async function fetchFollowups(limit = 100) {
+  const user = await requireUser()
+  const { data, error } = await supabase
+    .from('followups')
+    .select('id, status, channel, message, scheduled_at, sent_at, created_at, attempt_count, last_error, metadata, customer_id, customers(name, phone)')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  return data ?? []
+}
+
 export async function retryFollowup(id) {
   const user = await requireUser()
   const { data, error } = await supabase
