@@ -25,6 +25,12 @@ export default function Login() {
         : error.message);
       return;
     }
+    if (!remember) {
+      localStorage.setItem('pl:no_persist', '1');
+    } else {
+      localStorage.removeItem('pl:no_persist');
+    }
+    sessionStorage.setItem('pl:session_guard', '1');
     navigate('/app');
   }
 

@@ -180,6 +180,33 @@ Nebo při potvrzené rezervaci:
       })
     }
 
+    // SMS confirmation to customer + owner notification (fire-and-forget)
+    const { data: ownerCfg } = await db.from('company_settings')
+      .select('escalation_phone, twilio_phone_number, twilio_account_sid, twilio_auth_token')
+      .eq('user_id', userId).maybeSingle()
+
+    if (ownerCfg?.twilio_account_sid && ownerCfg?.twilio_auth_token && ownerCfg?.twilio_phone_number) {
+      const twilioBase = `https://api.twilio.com/2010-04-01/Accounts/${ownerCfg.twilio_account_sid}/Messages.json`
+      const auth = `Basic ${btoa(`${ownerCfg.twilio_account_sid}:${ownerCfg.twilio_auth_token}`)}`
+
+      // Confirmation SMS to customer
+      const dateLabel = new Date(action.booking.preferred_date).toLocaleString('cs-CZ', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
+      fetch(twilioBase, {
+        method: 'POST',
+        headers: { Authorization: auth, 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ To: from, From: ownerCfg.twilio_phone_number, Body: `Potvrzení rezervace: ${action.booking.service_name}, ${dateLabel}. Těšíme se na vás!` }).toString(),
+      }).catch(() => {})
+
+      // Notification SMS to owner
+      if (ownerCfg.escalation_phone) {
+        fetch(twilioBase, {
+          method: 'POST',
+          headers: { Authorization: auth, 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ To: ownerCfg.escalation_phone, From: ownerCfg.twilio_phone_number, Body: `Nikola zarezervovala: ${action.booking.service_name}, ${dateLabel}. Zákazník: ${action.booking.customer_name || from}` }).toString(),
+        }).catch(() => {})
+      }
+    }
+
     await finalizeCall(db, callSid, userId, from, state, action.update_summary, action.booking.customer_name)
     return twimlSay(action.speak, true)
   }

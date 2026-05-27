@@ -54,9 +54,8 @@ Deno.serve(async (req) => {
   const { action, booking_id } = await req.json()
 
   if (action === 'push') {
-    // Sync a single booking to Google Calendar
     const query = db.from('bookings')
-      .select('*, services(name)')
+      .select('*, services(name), customers(name, phone)')
       .eq('user_id', user.id)
 
     if (booking_id) query.eq('id', booking_id)
@@ -66,21 +65,23 @@ Deno.serve(async (req) => {
 
     const created: string[] = []
     for (const b of bookings ?? []) {
+      const svcName = (b.services as { name: string } | null)?.name ?? 'Rezervace'
+      const custName = (b.customers as { name: string; phone: string } | null)?.name
+        || (b.customers as { name: string; phone: string } | null)?.phone
+        || ''
       const event = {
-        summary:     `${(b.services as { name: string } | null)?.name ?? 'Rezervace'} — ${b.customer_phone ?? ''}`,
+        summary:     custName ? `${svcName} — ${custName}` : svcName,
         description: b.note ?? '',
         start:       { dateTime: b.starts_at, timeZone: 'Europe/Prague' },
         end:         { dateTime: b.ends_at,   timeZone: 'Europe/Prague' },
+        sendUpdates: 'none',
       }
 
       const gcalResp = await fetch(
         `https://www.googleapis.com/calendar/v3/calendars/${CALENDAR_ID}/events`,
         {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify(event),
         },
       )
@@ -93,6 +94,23 @@ Deno.serve(async (req) => {
     }
 
     return jsonResponse({ pushed: created.length, ids: created })
+  }
+
+  if (action === 'delete') {
+    const { data: booking } = await db.from('bookings')
+      .select('gcal_event_id')
+      .eq('id', booking_id)
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (booking?.gcal_event_id) {
+      await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${CALENDAR_ID}/events/${booking.gcal_event_id}`,
+        { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } },
+      )
+      await db.from('bookings').update({ gcal_event_id: null }).eq('id', booking_id)
+    }
+    return jsonResponse({ deleted: !!booking?.gcal_event_id })
   }
 
   if (action === 'pull') {

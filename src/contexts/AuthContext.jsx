@@ -10,6 +10,16 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
+      // If user logged in with "don't remember me" and this is a fresh browser session
+      if (session && localStorage.getItem('pl:no_persist') === '1' && !sessionStorage.getItem('pl:session_guard')) {
+        supabase.auth.signOut().then(() => {
+          localStorage.removeItem('pl:no_persist')
+          setSession(null)
+          setUser(null)
+          setLoading(false)
+        })
+        return
+      }
       setSession(session)
       setUser(session?.user ?? null)
       setLoading(false)

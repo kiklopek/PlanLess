@@ -286,8 +286,9 @@ const Dock = ({ title, crumb, right, aiOn }) => (
 /* ============================================================
    Today view
    ============================================================ */
-const TodayView = ({ setNav, setCallSel, onNavCalendar }) => {
+const TodayView = ({ setNav, setCallSel, onNavCalendar, onRefresh }) => {
   const week = getCurrentWeek();
+  const [menuId, setMenuId] = useState(null);
   const liveCall = CALLS.find((c) => c.live);
   const nowH = new Date().getHours() + new Date().getMinutes() / 60;
   const upcoming = EVENTS.filter((e) => e.col === week.todayCol && e.s >= nowH).slice(0, 4);
@@ -370,14 +371,23 @@ const TodayView = ({ setNav, setCallSel, onNavCalendar }) => {
             <Btn variant="ghost" size="sm" onClick={() => setNav('calendar')}>Celý kalendář</Btn>
           </div>
           <div className="col gap-3">
+            {upcoming.length === 0 && (
+              <div className="muted" style={{ fontSize: 13, padding: '16px 0', textAlign: 'center' }}>Dnes žádné další rezervace.</div>
+            )}
             {upcoming.map((e, i) => (
-              <div key={i} className="row gap-3" style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', alignItems: 'center' }}>
+              <div key={i} className="row gap-3" style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', alignItems: 'center', position: 'relative' }}>
                 <div className="mono" style={{ fontSize: 12.5, color: 'var(--accent)', minWidth: 64 }}>{fmtTime(e.s)}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 500 }}>{e.t}</div>
                   <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{e.who} · {fmtTime(e.e)} konec</div>
                 </div>
-                <Btn variant="ghost" size="sm" icon={I.MoreH} />
+                <Btn variant="ghost" size="sm" icon={I.MoreH} onClick={() => setMenuId(menuId === e.id ? null : e.id)} />
+                {menuId === e.id && (
+                  <div className="card" style={{ position: 'absolute', right: 0, top: '100%', zIndex: 30, padding: '6px 0', minWidth: 180, boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}>
+                    <button onClick={() => { setNav('calendar'); setMenuId(null); }} style={{ display: 'block', width: '100%', padding: '8px 16px', background: 'none', border: 'none', color: 'var(--ink)', fontSize: 13, textAlign: 'left', cursor: 'pointer' }}>Otevřít v kalendáři</button>
+                    <button onClick={async () => { try { await deleteBooking(e.id); toast.success('Rezervace zrušena.'); setMenuId(null); onRefresh?.(); } catch { toast.error('Chyba při rušení.'); } }} style={{ display: 'block', width: '100%', padding: '8px 16px', background: 'none', border: 'none', color: '#f87171', fontSize: 13, textAlign: 'left', cursor: 'pointer' }}>Zrušit rezervaci</button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -845,6 +855,22 @@ const InboxView = ({ selId, setSelId, onBookingCreated, onNavCalendar, dataVersi
 };
 
 /* ============================================================
+   Google Calendar sync (fire-and-forget)
+   ============================================================ */
+async function syncGcal(action, bookingId) {
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return
+    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-calendar-sync`
+    fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, booking_id: bookingId }),
+    }).catch(() => {})
+  } catch { /* ignore */ }
+}
+
+/* ============================================================
    Calendar view
    ============================================================ */
 function getWeekFromDate(anchorDate) {
@@ -929,11 +955,12 @@ const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
     const ends = new Date(starts.getTime() + service.d * 60000);
     setBSaving(true);
     try {
-      await createBooking({ user_id: user.id, service_id: bForm.serviceId, staff_id: bForm.staffId || null, starts_at: starts.toISOString(), ends_at: ends.toISOString(), note: bForm.note });
+      const newBooking = await createBooking({ user_id: user.id, service_id: bForm.serviceId, staff_id: bForm.staffId || null, starts_at: starts.toISOString(), ends_at: ends.toISOString(), note: bForm.note });
       toast.success('Rezervace vytvořena.');
       setBookingModal(false);
       setAnchor(starts);
       await onRefresh();
+      syncGcal('push', newBooking.id);
     } catch (e) {
       toast.error(e.message || 'Chyba při ukládání.');
     } finally {
@@ -943,6 +970,7 @@ const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
 
   const deleteEvt = async (id) => {
     try {
+      syncGcal('delete', id);
       await deleteBooking(id);
       toast.success('Rezervace smazána.');
       setSelEvent(null);
@@ -1053,6 +1081,12 @@ const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
           {hours.map((h) => <div key={h} className="cal-row-time">{h}:00</div>)}
         </div>
 
+        {events.length === 0 && (
+          <div style={{ gridColumn: '2 / -1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 10, color: 'var(--ink-3)', fontSize: 13, padding: '60px 0' }}>
+            <span>Tento týden žádné rezervace.</span>
+            <Btn variant="ghost" size="sm" icon={I.Plus} onClick={openBooking}>Přidat rezervaci</Btn>
+          </div>
+        )}
         {week.days.map((w, col) => {
           const dim = col === 6;
           const colEvents = events.filter((e) => e.col === col);
@@ -2722,7 +2756,7 @@ export default function Dashboard() {
           <Dock title={m.title} crumb={m.crumb} right={right} aiOn={aiOn} />
           <div className="view">
             {loading ? <LoadingView /> : <>
-              {nav === 'today'    && <TodayView setNav={setNav} setCallSel={setCallSel} />}
+              {nav === 'today'    && <TodayView setNav={setNav} setCallSel={setCallSel} onRefresh={refreshBookings} />}
               {nav === 'inbox'    && <InboxView selId={callSel} setSelId={setCallSel} onBookingCreated={refreshBookings} onNavCalendar={() => setNav('calendar')} dataVersion={dataVersion} />}
               {nav === 'calendar' && <CalendarView onRefresh={refreshBookings} prefillClient={calPrefill} onPrefillUsed={() => setCalPrefill(null)} />}
               {nav === 'clients'  && <ClientsView onRefresh={refreshCustomers} onNavigate={(view, prefill) => { if (prefill) setCalPrefill(prefill); setNav(view); }} />}

@@ -79,6 +79,7 @@ const DEFAULT_DATA = {
   team: [{ name: '', role: '' }],
   phoneMode: 'new',
   existingPhone: '',
+  twilioPhone: '',
   voice: 'nikola',
   tone: 'warm',
 };
@@ -375,50 +376,40 @@ function StepPhone({ data, set }) {
   return (
     <>
       <div className="ob-eyebrow">krok 6 — telefon</div>
-      <h1 className="ob-title">Jak mě mají klienti <span className="it">zastihnout</span>?</h1>
+      <h1 className="ob-title">Připojte <span className="it">Twilio</span> číslo</h1>
       <p className="ob-sub">
-        Doporučuji nové číslo PlanLess — můžete si nechat vyhledat krásné číslo a kdykoliv ho mít kdykoliv změnit.
+        Nikola přijímá hovory přes Twilio. Zadejte číslo z vašeho Twilio účtu — pak zkopírujte webhook URL z Nastavení → Integrace.
       </p>
 
-      <div className="ob-phone-tiles">
-        <div
-          className={cx('ob-phone-tile', data.phoneMode === 'new' && 'on')}
-          onClick={() => set({ phoneMode: 'new' })}
-        >
-          <div className="check"><I.Check s={12} /></div>
-          <div className="label">Nové číslo PlanLess <span className="badge">Doporučeno</span></div>
-          <div className="desc">
-            Vybereme vám hezké pražské nebo brněnské číslo. Zařídíme i to, aby vás klienti našli na Google.
-          </div>
-          <div className="num">
-            +420 277 140 220{' '}
-            <span style={{ color: 'var(--ink-3)', fontSize: 12.5, marginLeft: 8 }}>navrženo</span>
+      <div className="ob-field-group">
+        <div className="ob-field">
+          <div className="ob-field-label">Twilio telefonní číslo</div>
+          <input
+            className="ob-input"
+            placeholder="+420..."
+            value={data.twilioPhone}
+            onChange={e => set({ twilioPhone: e.target.value })}
+            style={{ maxWidth: 320 }}
+          />
+          <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 8 }}>
+            Ještě nemáte Twilio? <a href="https://www.twilio.com/try-twilio" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>Vytvořte bezplatný účet →</a>
           </div>
         </div>
 
-        <div
-          className={cx('ob-phone-tile', data.phoneMode === 'forward' && 'on')}
-          onClick={() => set({ phoneMode: 'forward' })}
-        >
-          <div className="check"><I.Check s={12} /></div>
-          <div className="label">Přesměrovat moje stávající číslo</div>
-          <div className="desc">
-            Hovory na vaše telefonní číslo budou tiše přesměrovány na Nikolu, když to nestihnete. Vy zvedáte normálně.
-          </div>
-          {data.phoneMode === 'forward' && (
-            <input
-              className="ob-input"
-              style={{ marginTop: 14, maxWidth: 280 }}
-              placeholder="Vaše stávající číslo"
-              value={data.existingPhone}
-              onChange={e => set({ existingPhone: e.target.value })}
-            />
-          )}
+        <div className="ob-field" style={{ marginTop: 20 }}>
+          <div className="ob-field-label">Jak nastavit webhook</div>
+          <ol style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.8, paddingLeft: 20, margin: '8px 0 0' }}>
+            <li>Přejděte do Twilio Console → Phone Numbers → Active Numbers</li>
+            <li>Klikněte na vaše číslo → Voice Configuration</li>
+            <li>Pole „A call comes in" nastavte na <strong>Webhook</strong></li>
+            <li>Zkopírujte webhook URL z Nastavení → Integrace → Twilio</li>
+            <li>Method: <strong>HTTP POST</strong></li>
+          </ol>
         </div>
       </div>
 
       <NikolaSays>
-        Není to nic technického — vše nastavíme my. Vy jen řeknete, kterou variantu chcete.
+        Stačí jedno číslo a za pár minut budu přijímat hovory místo vás.
       </NikolaSays>
     </>
   );
@@ -590,8 +581,13 @@ function StepDone({ data, goTo }) {
             Zavoláme vám teď na vaše soukromé číslo. Nikola se vám představí jako klient, který chce rezervaci — vyzkoušíte si, jak to bude znít.
           </div>
         </div>
-        <button className="ob-btn ob-btn-accent" disabled title="Dostupné po propojení s Twilio" onClick={() => toast('Testovací hovor bude dostupný po propojení s Twilio.')}>
-          <I.Phone s={14} /> Spustit testovací hovor
+        <button
+          className="ob-btn ob-btn-accent"
+          disabled={!data.twilioPhone}
+          title={data.twilioPhone ? `Zavolat na ${data.twilioPhone}` : 'Nejprve zadejte Twilio číslo v kroku Telefon'}
+          onClick={() => data.twilioPhone && window.open(`tel:${data.twilioPhone}`, '_self')}
+        >
+          <I.Phone s={14} /> {data.twilioPhone ? 'Zavolat si na zkoušku' : 'Zadejte Twilio číslo'}
         </button>
       </div>
     </>
@@ -707,6 +703,7 @@ export default function Onboarding() {
         lead_time_minutes: 120,
         max_booking_horizon_days: 60,
         onboarding_completed: true,
+        ...(data.twilioPhone ? { twilio_phone_number: data.twilioPhone } : {}),
       });
 
       const validServices = data.services.filter(s => s.name.trim());
