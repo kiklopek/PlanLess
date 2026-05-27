@@ -25,6 +25,42 @@ let EVENTS = [];
 let STAFF = [];
 let BLOCKS = [];
 let WEBHOOK_URL = null;
+let COMPANY_WH = null; // working_hours from company_settings
+
+/* ── Slot validation helpers ── */
+const WH_DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+const WH_DAY_CZ   = { sun: 'neděli', mon: 'pondělí', tue: 'úterý', wed: 'středu', thu: 'čtvrtek', fri: 'pátek', sat: 'sobotu' };
+
+function checkWorkingHours(starts, ends) {
+  if (!COMPANY_WH) return { open: true };
+  const dayKey = WH_DAY_KEYS[starts.getDay()];
+  const slots = COMPANY_WH[dayKey] ?? [];
+  if (slots.length === 0) return { open: false, msg: `V ${WH_DAY_CZ[dayKey] ?? 'tento den'} je zavřeno.` };
+  const sm = starts.getHours() * 60 + starts.getMinutes();
+  const em = ends.getHours() * 60 + ends.getMinutes();
+  const inSlot = slots.some(sl => {
+    const [sh, smm] = sl.start.split(':').map(Number);
+    const [eh, emm] = sl.end.split(':').map(Number);
+    return sm >= sh * 60 + smm && em <= eh * 60 + emm;
+  });
+  return inSlot ? { open: true } : { open: false, msg: 'Rezervace zasahuje mimo otevírací dobu.' };
+}
+
+function checkBlockConflict(starts, ends) {
+  return BLOCKS.some(b => {
+    const bs = new Date(b.starts_at), be = new Date(b.ends_at);
+    return starts < be && ends > bs;
+  });
+}
+
+function checkBookingConflict(starts, ends, excludeId) {
+  return EVENTS.some(e => {
+    if (!e.starts_at || !e.ends_at) return false;
+    if (excludeId && e.id === excludeId) return false;
+    const es = new Date(e.starts_at), ee = new Date(e.ends_at);
+    return starts < ee && ends > es;
+  });
+}
 
 /* ── Week helpers ── */
 const CZ_DAYS = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
@@ -927,6 +963,7 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
   const [blForm, setBlForm] = useState({ date: '', timeFrom: '09:00', timeTo: '17:00', reason: '' });
   const [bSaving, setBSaving] = useState(false);
   const [blSaving, setBlSaving] = useState(false);
+  const [outsideHoursWarn, setOutsideHoursWarn] = useState(null);
 
   useEffect(() => {
     if (prefillClient) {
@@ -971,6 +1008,7 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
   const openBooking = (date, time) => {
     const today = date ?? new Date().toISOString().slice(0, 10);
     setBForm({ date: today, time: time ?? '09:00', serviceId: SERVICES[0]?.id ?? '', staffId: '', note: '' });
+    setOutsideHoursWarn(null);
     setBookingModal(true);
     setBlockModal(false);
     setSelEvent(null);
@@ -1014,12 +1052,34 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
     }
   };
 
-  const saveBooking = async () => {
+  const saveBooking = async (forceOutsideHours = false) => {
+    setOutsideHoursWarn(null);
     if (!bForm.date || !bForm.serviceId) { toast.error('Vyplňte datum a službu.'); return; }
     const service = SERVICES.find(s => s.id === bForm.serviceId);
     if (!service) { toast.error('Služba nenalezena.'); return; }
     const starts = new Date(`${bForm.date}T${bForm.time}:00`);
     const ends = new Date(starts.getTime() + service.d * 60000);
+
+    // Hard block: calendar_block conflict
+    if (checkBlockConflict(starts, ends)) {
+      toast.error('V tomto čase je blokace. Nejdříve ji odstraňte v kalendáři.');
+      return;
+    }
+
+    // Hard block: existing booking overlap
+    if (checkBookingConflict(starts, ends)) {
+      toast.error('V tomto čase již existuje jiná rezervace.');
+      return;
+    }
+
+    // Soft warning: outside working hours — require explicit confirmation
+    if (!forceOutsideHours) {
+      const wh = checkWorkingHours(starts, ends);
+      if (!wh.open) {
+        setOutsideHoursWarn(wh.msg);
+        return;
+      }
+    }
 
     // Auto-assign: if no staff selected and active staff exist, pick one with fewest bookings that day
     let assignedStaffId = bForm.staffId || null;
@@ -1094,19 +1154,19 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
             <label className="col gap-2">
               <span className="lbl">Datum</span>
               <div className="field" style={{ padding: '8px 12px' }}>
-                <input type="date" value={bForm.date} onChange={e => setBForm(f => ({ ...f, date: e.target.value }))} style={inputStyle} />
+                <input type="date" value={bForm.date} onChange={e => { setBForm(f => ({ ...f, date: e.target.value })); setOutsideHoursWarn(null); }} style={inputStyle} />
               </div>
             </label>
             <label className="col gap-2">
               <span className="lbl">Čas</span>
               <div className="field" style={{ padding: '8px 12px' }}>
-                <input type="time" value={bForm.time} onChange={e => setBForm(f => ({ ...f, time: e.target.value }))} style={inputStyle} />
+                <input type="time" value={bForm.time} onChange={e => { setBForm(f => ({ ...f, time: e.target.value })); setOutsideHoursWarn(null); }} style={inputStyle} />
               </div>
             </label>
             <label className="col gap-2" style={{ gridColumn: '1 / -1' }}>
               <span className="lbl">Služba</span>
               <div className="field" style={{ padding: '8px 12px' }}>
-                <select value={bForm.serviceId} onChange={e => setBForm(f => ({ ...f, serviceId: e.target.value }))} style={{ ...inputStyle }}>
+                <select value={bForm.serviceId} onChange={e => { setBForm(f => ({ ...f, serviceId: e.target.value })); setOutsideHoursWarn(null); }} style={{ ...inputStyle }}>
                   <option value="">— vyberte —</option>
                   {SERVICES.map(s => <option key={s.id} value={s.id}>{s.name} ({s.d} min)</option>)}
                 </select>
@@ -1130,10 +1190,24 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
               </div>
             </label>
           </div>
-          <div className="row gap-2">
-            <Btn variant="accent" size="sm" onClick={saveBooking} disabled={bSaving}>{bSaving ? 'Ukládám…' : 'Vytvořit rezervaci'}</Btn>
-            <Btn variant="ghost" size="sm" onClick={() => setBookingModal(false)}>Zrušit</Btn>
-          </div>
+          {outsideHoursWarn && (
+            <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.35)', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#fbbf24', marginBottom: 4 }}>⚠ Mimo otevírací dobu</div>
+              <div style={{ fontSize: 13, color: 'var(--ink-2)', marginBottom: 10, lineHeight: 1.5 }}>{outsideHoursWarn} Chcete rezervaci přesto vytvořit?</div>
+              <div className="row gap-2">
+                <Btn variant="accent" size="sm" onClick={() => saveBooking(true)} disabled={bSaving}>
+                  {bSaving ? 'Ukládám…' : 'Přesto vytvořit'}
+                </Btn>
+                <Btn variant="ghost" size="sm" onClick={() => setOutsideHoursWarn(null)}>Zrušit</Btn>
+              </div>
+            </div>
+          )}
+          {!outsideHoursWarn && (
+            <div className="row gap-2">
+              <Btn variant="accent" size="sm" onClick={saveBooking} disabled={bSaving}>{bSaving ? 'Ukládám…' : 'Vytvořit rezervaci'}</Btn>
+              <Btn variant="ghost" size="sm" onClick={() => { setBookingModal(false); setOutsideHoursWarn(null); }}>Zrušit</Btn>
+            </div>
+          )}
         </div>
       )}
 
@@ -1236,17 +1310,34 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
           });
           return (
             <div key={col} className={cx('cal-col', dim && 'dim')}>
-              {hours.map((h) => (
-                <div
-                  key={h}
-                  className="cal-cell"
-                  onClick={() => {
-                    const dateStr = new Date(week.weekStart.getTime() + col * 86400000).toISOString().slice(0,10);
-                    openBooking(dateStr, `${String(h).padStart(2,'0')}:00`);
-                  }}
-                  style={{ cursor: 'pointer' }}
-                />
-              ))}
+              {hours.map((h) => {
+                const dateStr = new Date(week.weekStart.getTime() + col * 86400000).toISOString().slice(0,10);
+                const cellStart = new Date(`${dateStr}T${String(h).padStart(2,'0')}:00:00`);
+                const cellEnd   = new Date(cellStart.getTime() + 60 * 60000);
+                const isBlocked = colBlocks.some(b => cellStart < new Date(b.ends_at) && cellEnd > new Date(b.starts_at));
+                const dayKey = WH_DAY_KEYS[cellStart.getDay()];
+                const whSlots = COMPANY_WH?.[dayKey] ?? null;
+                const isClosed = whSlots !== null && whSlots.length === 0;
+                const isOutsideHours = !isClosed && whSlots !== null && !whSlots.some(sl => {
+                  const [sh, smm] = sl.start.split(':').map(Number);
+                  const [eh, emm] = sl.end.split(':').map(Number);
+                  return h >= sh && h < eh;
+                });
+                return (
+                  <div
+                    key={h}
+                    className="cal-cell"
+                    onClick={() => {
+                      if (isBlocked) { toast.error('V tomto čase je blokace. Nejdříve ji odstraňte.'); return; }
+                      openBooking(dateStr, `${String(h).padStart(2,'0')}:00`);
+                    }}
+                    style={{
+                      cursor: isBlocked ? 'not-allowed' : 'pointer',
+                      background: isClosed ? 'repeating-linear-gradient(-45deg, rgba(255,255,255,0.015), rgba(255,255,255,0.015) 3px, transparent 3px, transparent 8px)' : isOutsideHours ? 'rgba(0,0,0,0.12)' : undefined,
+                    }}
+                  />
+                );
+              })}
               {colBlocks.map((b) => {
                 const bs = new Date(b.starts_at);
                 const be = new Date(b.ends_at);
@@ -3629,7 +3720,7 @@ export default function Dashboard() {
       fetchBookings().then(rows => { EVENTS = rows.map(mapBookingToEvent); }),
       fetchStaff().then(rows => { STAFF = rows; }),
       fetchBlocks().then(rows => { BLOCKS = rows; }),
-      getCompanySettings(user.id).then(s => { setMainSettings(s); WEBHOOK_URL = s?.webhook_url ?? null; }).catch(() => {}),
+      getCompanySettings(user.id).then(s => { setMainSettings(s); WEBHOOK_URL = s?.webhook_url ?? null; COMPANY_WH = s?.working_hours ?? null; }).catch(() => {}),
     ]).then(() => { setLoading(false); setDataVersion(v => v + 1); });
   }, [user]);
 
