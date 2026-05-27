@@ -259,3 +259,6 @@ ALTER TABLE public.bookings         ADD COLUMN IF NOT EXISTS reminder_sent_at ti
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS ai_paused        boolean DEFAULT false;
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS reminder_enabled boolean DEFAULT true;
 CREATE INDEX IF NOT EXISTS bookings_reminder_idx ON public.bookings(starts_at) WHERE reminder_sent_at IS NULL;
+
+-- Phase 6: Staff notes/specialization
+ALTER TABLE public.staff ADD COLUMN IF NOT EXISTS notes text;

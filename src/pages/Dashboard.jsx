@@ -1018,9 +1018,22 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
     if (!service) { toast.error('Služba nenalezena.'); return; }
     const starts = new Date(`${bForm.date}T${bForm.time}:00`);
     const ends = new Date(starts.getTime() + service.d * 60000);
+
+    // Auto-assign: if no staff selected and active staff exist, pick one with fewest bookings that day
+    let assignedStaffId = bForm.staffId || null;
+    if (!assignedStaffId && STAFF.filter(s => s.is_active).length > 0) {
+      const dayStart = new Date(bForm.date); dayStart.setHours(0,0,0,0);
+      const dayEnd   = new Date(bForm.date); dayEnd.setHours(23,59,59,999);
+      const dayEvents = EVENTS.filter(e => new Date(e.starts_at) >= dayStart && new Date(e.starts_at) <= dayEnd);
+      const activeStaff = STAFF.filter(s => s.is_active);
+      const counts = activeStaff.map(s => ({ id: s.id, n: dayEvents.filter(e => e.staff_id === s.id).length }));
+      counts.sort((a, b) => a.n - b.n);
+      assignedStaffId = counts[0]?.id ?? null;
+    }
+
     setBSaving(true);
     try {
-      const newBooking = await createBooking({ user_id: user.id, service_id: bForm.serviceId, staff_id: bForm.staffId || null, starts_at: starts.toISOString(), ends_at: ends.toISOString(), note: bForm.note });
+      const newBooking = await createBooking({ user_id: user.id, service_id: bForm.serviceId, staff_id: assignedStaffId, starts_at: starts.toISOString(), ends_at: ends.toISOString(), note: bForm.note });
       toast.success('Rezervace vytvořena.');
       setBookingModal(false);
       setAnchor(starts);
@@ -1256,13 +1269,19 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
               {colEvents.map((e, i) => {
                 const top = (e.s - START_H) * ROW_H;
                 const height = Math.max((e.e - e.s) * ROW_H - 4, 20);
+                const staffMember = e.staff_id ? STAFF.find(s => s.id === e.staff_id) : null;
+                const staffColor = staffMember?.color;
                 return (
                   <div
                     key={i}
-                    className={cx('evt', e.c, e.ai && 'ai-suggest', selEvent?.id === e.id && 'on')}
-                    style={{ top, height, cursor: 'pointer' }}
+                    className={cx('evt', !staffColor && e.c, e.ai && 'ai-suggest', selEvent?.id === e.id && 'on')}
+                    style={{
+                      top, height, cursor: 'pointer',
+                      ...(staffColor ? { background: staffColor + '28', borderColor: staffColor, borderWidth: 1 } : {}),
+                    }}
                     onClick={(ev) => { ev.stopPropagation(); setSelEvent(selEvent?.id === e.id ? null : e); setSelBlock(null); }}
                   >
+                    {staffMember && <div style={{ width: 6, height: 6, borderRadius: '50%', background: staffColor, flexShrink: 0, marginBottom: 2 }} />}
                     <div className="t">{e.t}</div>
                     <div className="s">{fmtTime(e.s)}–{fmtTime(e.e)}</div>
                   </div>
@@ -2549,13 +2568,13 @@ const SetStaff = ({ user }) => {
 
   const openAdd = () => {
     setEditId(null);
-    setForm({ name: '', email: '', phone: '', color: '#6366f1' });
+    setForm({ name: '', email: '', phone: '', color: '#6366f1', notes: '' });
     setModal(true);
   };
 
   const openEdit = (s) => {
     setEditId(s.id);
-    setForm({ name: s.name, email: s.email || '', phone: s.phone || '', color: s.color || '#6366f1' });
+    setForm({ name: s.name, email: s.email || '', phone: s.phone || '', color: s.color || '#6366f1', notes: s.notes || '' });
     setModal(true);
   };
 
@@ -2564,10 +2583,10 @@ const SetStaff = ({ user }) => {
     setSaving(true);
     try {
       if (editId) {
-        const updated = await updateStaff(editId, { name: form.name, email: form.email || null, phone: form.phone || null, color: form.color });
+        const updated = await updateStaff(editId, { name: form.name, email: form.email || null, phone: form.phone || null, color: form.color, notes: form.notes || null });
         STAFF = STAFF.map(s => s.id === editId ? updated : s);
       } else {
-        const created = await createStaff({ name: form.name, email: form.email || null, phone: form.phone || null, color: form.color });
+        const created = await createStaff({ name: form.name, email: form.email || null, phone: form.phone || null, color: form.color, notes: form.notes || null });
         STAFF = [...STAFF, created];
       }
       setStaffList([...STAFF]);
@@ -2615,26 +2634,43 @@ const SetStaff = ({ user }) => {
           {staffList.length === 0 && !modal && (
             <div className="muted" style={{ fontSize: 13, padding: '12px 0' }}>Zatím žádní zaměstnanci. Přidejte prvního.</div>
           )}
-          {staffList.map(s => (
-            <div key={s.id} className="card thin" style={{ padding: '12px 16px' }}>
-              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                <div className="row gap-3" style={{ alignItems: 'center' }}>
-                  <div className="av" style={{ background: s.color || 'var(--accent)', color: '#fff', fontWeight: 600 }}>
-                    {s.initials || s.name.slice(0, 2).toUpperCase()}
+          {staffList.map(s => {
+            const sBookings = EVENTS.filter(e => e.staff_id === s.id);
+            const sRevenue = sBookings.reduce((sum, e) => {
+              const svc = SERVICES.find(sv => sv.id === e.service_id);
+              return sum + (svc?.p ?? 0);
+            }, 0);
+            return (
+              <div key={s.id} className="card thin" style={{ padding: '12px 16px', borderLeft: `3px solid ${s.color || 'var(--accent)'}` }}>
+                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                  <div className="row gap-3" style={{ alignItems: 'center' }}>
+                    <div className="av" style={{ background: s.color || 'var(--accent)', color: '#fff', fontWeight: 600, flexShrink: 0 }}>
+                      {s.initials || s.name.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 500 }}>{s.name}</div>
+                      <div className="muted" style={{ fontSize: 12 }}>{s.email || s.phone || 'Bez kontaktu'}</div>
+                    </div>
                   </div>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 500 }}>{s.name}</div>
-                    <div className="muted" style={{ fontSize: 12 }}>{s.email || s.phone || 'Bez kontaktu'}</div>
+                  <div className="row gap-4" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 18, fontWeight: 700 }}>{sBookings.length}</div>
+                      <div className="muted" style={{ fontSize: 11 }}>rezervací</div>
+                    </div>
+                    {sRevenue > 0 && (
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 15, fontWeight: 600 }}>{sRevenue.toLocaleString('cs-CZ')} Kč</div>
+                        <div className="muted" style={{ fontSize: 11 }}>tržby celkem</div>
+                      </div>
+                    )}
+                    <Switch on={s.is_active} onChange={() => toggleActive(s)} />
+                    <Btn variant="ghost" size="sm" onClick={() => openEdit(s)}>Upravit</Btn>
+                    <Btn variant="ghost" size="sm" onClick={() => del(s.id)}><I.X s={14} /></Btn>
                   </div>
-                </div>
-                <div className="row gap-2" style={{ alignItems: 'center' }}>
-                  <Switch on={s.is_active} onChange={() => toggleActive(s)} />
-                  <Btn variant="ghost" size="sm" onClick={() => openEdit(s)}>Upravit</Btn>
-                  <Btn variant="ghost" size="sm" onClick={() => del(s.id)}><I.X s={14} /></Btn>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -2658,6 +2694,12 @@ const SetStaff = ({ user }) => {
               <span className="lbl">Telefon</span>
               <div className="field" style={{ padding: '8px 12px' }}>
                 <input type="tel" placeholder="+420 777 111 222" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} style={inputStyle} />
+              </div>
+            </label>
+            <label className="col gap-2">
+              <span className="lbl">Specializace / poznámka</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input placeholder="Střihy, barvy, manikúra…" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} style={inputStyle} />
               </div>
             </label>
             <div className="col gap-2">

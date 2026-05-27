@@ -50,6 +50,7 @@ export async function createStaff(payload) {
       initials: payload.initials ?? initials,
       email: payload.email ?? null,
       phone: payload.phone ?? null,
+      notes: payload.notes ?? null,
       working_hours: payload.working_hours ?? null,
       is_active: payload.is_active !== false,
     })
