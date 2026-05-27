@@ -5,7 +5,7 @@ import './Dashboard.css';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { fetchCalls, updateCallStatus, clearCachedCalls } from '../lib/callsDb.js';
 import { fetchStaff, createStaff, updateStaff, deleteStaff, clearCachedStaff } from '../lib/staffDb.js';
-import { fetchCustomers, upsertCustomer, deleteCustomerByPhone } from '../lib/customersDb.js';
+import { fetchCustomers, upsertCustomer, deleteCustomerByPhone, fetchCustomerStats } from '../lib/customersDb.js';
 import { fetchServices, createService, updateService, deleteService } from '../lib/servicesDb.js';
 import { fetchBookings, createBooking, deleteBooking, clearCachedBookings } from '../lib/bookingsDb.js';
 import { createFollowup } from '../lib/followupsDb.js';
@@ -87,6 +87,8 @@ function mapCallRow(r) {
       kind: r.status,
       label: r.status === 'booked' ? 'Rezervace vytvořena' : r.status === 'missed' ? 'Zmeškaný hovor' : 'Dotaz zákazníka',
       sub: r.summary || '',
+      service: r.bookings?.services?.name ?? null,
+      when: r.bookings?.starts_at ? new Date(r.bookings.starts_at).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : null,
     },
   };
 }
@@ -111,11 +113,10 @@ function mapServiceRow(r) {
   return {
     id: r.id,
     name: r.name,
-    cat: 'Služby',
+    cat: r.category || 'Ostatní',
     d: r.duration_min,
     p: r.price,
-    b: 0,
-    on: true,
+    on: r.is_active !== false,
     buffer_after_min: r.buffer_after_min || 0,
   };
 }
@@ -129,10 +130,13 @@ function mapBookingToEvent(r) {
     col,
     s: start.getHours() + start.getMinutes() / 60,
     e: end.getHours() + end.getMinutes() / 60,
-    t: r.note || 'Rezervace',
-    who: '—',
+    t: r.customers?.name || r.note || 'Rezervace',
+    who: r.customers?.name || r.customers?.phone || '—',
     starts_at: r.starts_at,
     staff_id: r.staff_id ?? null,
+    customer_id: r.customer_id ?? null,
+    service_id: r.service_id ?? null,
+    service_name: r.services?.name ?? null,
   };
 }
 
@@ -645,16 +649,10 @@ const CallDetail = ({ call, onBookingCreated, onNavCalendar }) => {
               </div>
             </div>
             <div className="tr">
-              {(call.transcript || []).map((t, i) => <TranscriptTurn key={i} turn={t} />)}
-              <div className="tr-turn">
-                <div className="tr-meta" style={{ color: 'var(--accent)' }}>00:42</div>
-                <div>
-                  <div className="tr-label" style={{ color: 'var(--accent)' }}>— Nikola odpovídá</div>
-                  <div className="tr-bubble ai" style={{ color: 'var(--ink-3)', fontStyle: 'italic', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <Wave size={11} /> rezervuji…
-                  </div>
-                </div>
-              </div>
+              {(call.transcript || []).length === 0
+                ? <div className="muted" style={{ padding: '12px 0', fontSize: 13 }}>Nikola vyřizuje hovor…</div>
+                : (call.transcript || []).map((t, i) => <TranscriptTurn key={i} turn={t} />)
+              }
             </div>
           </div>
         )}
@@ -1116,13 +1114,19 @@ const ClientsView = ({ onRefresh, onNavigate }) => {
   const [addModal, setAddModal] = useState(false);
   const [form, setForm] = useState({ name: '', phone: '', email: '', vip: false });
   const [saving, setSaving] = useState(false);
+  const [clientStats, setClientStats] = useState({ visits: 0, spend: 0 });
   const filtered = q
     ? CLIENTS.filter((c) => c.name.toLowerCase().includes(q.toLowerCase()) || (c.phone || '').includes(q))
     : CLIENTS;
   const client = CLIENTS.find((c) => c.id === sel) ?? (CLIENTS.length > 0 ? CLIENTS[0] : null);
 
-  const clientBookings = client ? EVENTS.filter(e => e.who === client.name).slice(0, 5) : [];
+  const clientBookings = client ? EVENTS.filter(e => e.customer_id === client.id).slice(0, 5) : [];
   const clientCalls = client ? CALLS.filter(c => c.phone === client.phone).slice(0, 5) : [];
+
+  useEffect(() => {
+    if (!client) return;
+    fetchCustomerStats(client.id).then(setClientStats).catch(() => {});
+  }, [client?.id]);
 
   const saveClient = async () => {
     if (!form.phone.trim()) { toast.error('Zadejte telefonní číslo.'); return; }
@@ -1239,10 +1243,10 @@ const ClientsView = ({ onRefresh, onNavigate }) => {
           </div>
 
           <div className="stat-grid">
-            <div className="stat"><div className="n">{clientBookings.length}</div><div className="l">rezervací celkem</div></div>
+            <div className="stat"><div className="n">{clientStats.visits}</div><div className="l">rezervací celkem</div></div>
             <div className="stat"><div className="n">{clientCalls.length}</div><div className="l">hovorů celkem</div></div>
-            <div className="stat"><div className="n">—</div><div className="l">průměr mezi návštěvami</div></div>
-            <div className="stat"><div className="n">—</div><div className="l">dochvilnost</div></div>
+            <div className="stat"><div className="n">{clientStats.spend > 0 ? fmtPrice(clientStats.spend) : '—'}</div><div className="l">celkové výdaje</div></div>
+            <div className="stat"><div className="n">{client?.last !== '—' ? client.last : '—'}</div><div className="l">poslední návštěva</div></div>
           </div>
 
           <div className="card">
@@ -1290,19 +1294,24 @@ const ServicesView = ({ onRefresh }) => {
   const [modal, setModal] = useState(null); // null | {} (new) | {...service} (edit)
   const [menuId, setMenuId] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: '', duration_min: 30, price: '', buffer_after_min: 0 });
+  const [form, setForm] = useState({ name: '', duration_min: 30, price: '', buffer_after_min: 0, category: '' });
 
-  const cats = ['all', ...Array.from(new Set(SERVICES.map((s) => s.cat)))];
+  const cats = ['all', ...Array.from(new Set(SERVICES.map((s) => s.cat).filter(c => c && c !== 'Ostatní'))), 'Ostatní'].filter((v, i, a) => a.indexOf(v) === i);
   const rows = cat === 'all' ? SERVICES : SERVICES.filter((s) => s.cat === cat);
+  const svcBookingCount = useMemo(() => {
+    const counts = {};
+    EVENTS.forEach(e => { if (e.service_id) counts[e.service_id] = (counts[e.service_id] || 0) + 1; });
+    return counts;
+  }, []);
 
-  const openNew = () => { setForm({ name: '', duration_min: 30, price: '', buffer_after_min: 0 }); setModal({}); };
-  const openEdit = (s) => { setForm({ name: s.name, duration_min: s.d, price: s.p ?? '', buffer_after_min: s.buffer_after_min ?? 0 }); setModal(s); setMenuId(null); };
+  const openNew = () => { setForm({ name: '', duration_min: 30, price: '', buffer_after_min: 0, category: '' }); setModal({}); };
+  const openEdit = (s) => { setForm({ name: s.name, duration_min: s.d, price: s.p ?? '', buffer_after_min: s.buffer_after_min ?? 0, category: s.cat === 'Ostatní' ? '' : (s.cat || '') }); setModal(s); setMenuId(null); };
 
   const save = async () => {
     if (!form.name.trim()) { toast.error('Zadejte název služby.'); return; }
     setSaving(true);
     try {
-      const payload = { name: form.name.trim(), duration_min: Number(form.duration_min) || 30, price: form.price !== '' ? Number(form.price) : null, buffer_after_min: Number(form.buffer_after_min) || 0 };
+      const payload = { name: form.name.trim(), duration_min: Number(form.duration_min) || 30, price: form.price !== '' ? Number(form.price) : null, buffer_after_min: Number(form.buffer_after_min) || 0, category: form.category.trim() || null };
       if (modal?.id) {
         await updateService(modal.id, payload);
         toast.success('Služba upravena.');
@@ -1357,6 +1366,12 @@ const ServicesView = ({ onRefresh }) => {
                 <input placeholder="Např. Střih + foukaná" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} autoFocus />
               </div>
             </label>
+            <label className="col gap-2" style={{ gridColumn: '1 / -1' }}>
+              <span className="lbl">Kategorie</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input placeholder="Vlasy, Barva, Péče, Nehty…" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} style={inputStyle} />
+              </div>
+            </label>
             <label className="col gap-2">
               <span className="lbl">Délka (min)</span>
               <div className="field" style={{ padding: '8px 12px' }}>
@@ -1376,6 +1391,14 @@ const ServicesView = ({ onRefresh }) => {
               </div>
             </label>
           </div>
+          {modal?.id && (
+            <div className="row gap-3" style={{ alignItems: 'center' }}>
+              <Switch on={modal.on ?? true} onChange={async (v) => {
+                try { await updateService(modal.id, { is_active: v }); setModal(m => ({ ...m, on: v })); await onRefresh(); } catch {}
+              }} />
+              <span className="lbl" style={{ fontWeight: 400 }}>{modal.on ?? true ? 'Aktivní' : 'Neaktivní'}</span>
+            </div>
+          )}
           <div className="row gap-2">
             <Btn variant="accent" size="sm" onClick={save} disabled={saving}>{saving ? 'Ukládám…' : modal?.id ? 'Uložit změny' : 'Přidat službu'}</Btn>
             <Btn variant="ghost" size="sm" onClick={() => setModal(null)}>Zrušit</Btn>
@@ -1404,11 +1427,16 @@ const ServicesView = ({ onRefresh }) => {
               <tr key={s.id}>
                 <td>
                   <div className="svc-name">{s.name}</div>
-                  {s.buffer_after_min > 0 && <div className="svc-cat">+{s.buffer_after_min} min buffer</div>}
+                  <div className="svc-cat">{s.cat}{s.buffer_after_min > 0 ? ` · +${s.buffer_after_min} min buffer` : ''}</div>
                 </td>
                 <td className="num muted">{s.d} min</td>
                 <td className="num" style={{ fontWeight: 500 }}>{s.p != null ? fmtPrice(s.p) : '—'}</td>
-                <td><Tag variant="live"><span className="d" />Aktivní</Tag></td>
+                <td>
+                  {s.on
+                    ? <Tag variant="live"><span className="d" />Aktivní</Tag>
+                    : <Tag>Neaktivní</Tag>
+                  }
+                </td>
                 <td style={{ position: 'relative' }}>
                   <Btn variant="ghost" icon={I.MoreH} size="sm" onClick={() => setMenuId(menuId === s.id ? null : s.id)} />
                   {menuId === s.id && (

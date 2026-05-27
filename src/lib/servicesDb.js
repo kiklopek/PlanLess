@@ -31,7 +31,7 @@ export async function fetchServices() {
   const user = await requireUser()
   const { data, error } = await supabase
     .from('services')
-    .select('id, name, price, duration_min, buffer_after_min, created_at')
+    .select('id, name, price, duration_min, buffer_after_min, category, is_active, created_at')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
 
@@ -51,8 +51,10 @@ export async function createService(payload) {
       price: payload.price,
       duration_min: payload.duration_min,
       buffer_after_min: payload.buffer_after_min ?? 0,
+      category: payload.category ?? null,
+      is_active: payload.is_active !== false,
     })
-    .select('id, name, price, duration_min, buffer_after_min, created_at')
+    .select('id, name, price, duration_min, buffer_after_min, category, is_active, created_at')
     .single()
 
   if (error) throw error

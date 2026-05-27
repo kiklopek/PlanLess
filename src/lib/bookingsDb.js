@@ -34,7 +34,7 @@ export async function fetchBookings({ from, to } = {}) {
 
   let query = supabase
     .from('bookings')
-    .select('*')
+    .select('*, customers(name, phone), services(name)')
     .eq('user_id', user.id)
     .order('starts_at', { ascending: true })
 

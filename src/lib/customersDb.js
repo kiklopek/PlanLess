@@ -86,6 +86,16 @@ export async function updateCustomerByPhone(phone, patch) {
   }
 }
 
+export async function fetchCustomerStats(customerId) {
+  const { data } = await supabase
+    .from('bookings')
+    .select('id, services(price)')
+    .eq('customer_id', customerId)
+  const visits = data?.length ?? 0
+  const spend = data?.reduce((sum, b) => sum + (b.services?.price ?? 0), 0) ?? 0
+  return { visits, spend }
+}
+
 export async function deleteCustomerByPhone(phone) {
   const user = await requireUser()
   const { error } = await supabase

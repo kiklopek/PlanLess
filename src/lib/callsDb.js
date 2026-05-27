@@ -23,7 +23,7 @@ export async function fetchCalls() {
   if (cacheIsFresh()) return cachedCalls.data
   const { data, error } = await supabase
     .from('calls')
-    .select('id, created_at, customer_phone, customer_name, service_id, preferred_date, booking_id, summary, transcript_full, status, recording_url')
+    .select('id, created_at, customer_phone, customer_name, service_id, preferred_date, booking_id, summary, transcript_full, status, recording_url, bookings(starts_at, services(name))')
     .order('created_at', { ascending: false })
     .limit(100)
 
