@@ -7,11 +7,11 @@ async function requireUser() {
   return user
 }
 
-export async function createFollowup({ call_id = null, customer_id = null, channel = 'sms', message }) {
+export async function createFollowup({ call_id = null, customer_id = null, channel = 'sms', message, metadata = null }) {
   const user = await requireUser()
   const { data, error } = await supabase
     .from('followups')
-    .insert({ user_id: user.id, call_id, customer_id, channel, message, status: 'queued' })
+    .insert({ user_id: user.id, call_id, customer_id, channel, message, status: 'queued', metadata })
     .select('id, status, created_at')
     .single()
   if (error) throw error
