@@ -105,7 +105,7 @@ export default function BookingPage() {
 
       // Create booking
       const endsAt = new Date(new Date(selSlot.startsAt).getTime() + selService.duration_min * 60000)
-      await supabase.from('bookings').insert({
+      const { data: bk } = await supabase.from('bookings').insert({
         user_id: company.user_id,
         service_id: selService.id,
         customer_id: cust?.id ?? null,
@@ -113,7 +113,16 @@ export default function BookingPage() {
         ends_at: endsAt.toISOString(),
         note: form.note.trim() || `Online rezervace — ${form.name}`,
         status: 'confirmed',
-      })
+      }).select('id').single()
+
+      // Fire-and-forget SMS confirmation
+      if (bk?.id) {
+        fetch(`${SUPABASE_URL}/functions/v1/confirm-online-booking`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ booking_id: bk.id }),
+        }).catch(() => {})
+      }
 
       setStep(4)
     } catch (e) {

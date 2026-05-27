@@ -45,8 +45,7 @@ async function handleCall(twilioWs: WebSocket) {
   let userId = ''
   let settings: Record<string, any> | null = null
   let audioQueue: string[] = []          // buffer until OpenAI is ready
-  let userLines: string[] = []           // transcript lines from caller
-  let aiLines: string[] = []             // transcript lines from AI
+  let transcript: string[] = []          // interleaved turns in order
   let currentAiChunk = ''               // accumulate AI audio transcript
   let bookingId: string | null = null
   let finalized = false
@@ -213,14 +212,14 @@ async function handleCall(twilioWs: WebSocket) {
       currentAiChunk += m.delta
     }
     if (m.type === 'response.audio_transcript.done') {
-      if (currentAiChunk.trim()) aiLines.push(`Nikola: ${currentAiChunk.trim()}`)
+      if (currentAiChunk.trim()) transcript.push(`Nikola: ${currentAiChunk.trim()}`)
       currentAiChunk = ''
     }
 
-    // Track caller transcript (Whisper)
+    // Track caller transcript (Whisper) — comes slightly after the turn ends
     if (m.type === 'conversation.item.input_audio_transcription.completed') {
       const t = m.transcript?.trim()
-      if (t) userLines.push(`Zákazník: ${t}`)
+      if (t) transcript.push(`Zákazník: ${t}`)
     }
 
     // Tool call completed — execute it
@@ -335,10 +334,8 @@ async function handleCall(twilioWs: WebSocket) {
   async function finalizeCall() {
     if (finalized || !callDbId) return
     finalized = true
-    const fullTranscript = [...userLines, ...aiLines]
-      .sort((a) => a.startsWith('Zákazník') ? -1 : 1)
-      .join('\n') || null
-    const hasUserSpeech = userLines.length > 0
+    const fullTranscript = transcript.join('\n') || null
+    const hasUserSpeech = transcript.some(l => l.startsWith('Zákazník'))
     await db.from('calls').update({
       status: bookingId ? 'booked' : hasUserSpeech ? 'info' : 'missed',
       transcript_full: fullTranscript,
