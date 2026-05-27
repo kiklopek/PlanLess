@@ -66,15 +66,16 @@ Deno.serve(async (req) => {
     const created: string[] = []
     for (const b of bookings ?? []) {
       const svcName = (b.services as { name: string } | null)?.name ?? 'Rezervace'
-      const custName = (b.customers as { name: string; phone: string } | null)?.name
-        || (b.customers as { name: string; phone: string } | null)?.phone
-        || ''
+      const cust = b.customers as { name: string; phone: string; email?: string } | null
+      const custName = cust?.name || cust?.phone || ''
+      const custEmail = (cust as { email?: string } | null)?.email ?? null
+      const attendees = custEmail ? [{ email: custEmail }] : []
       const event = {
         summary:     custName ? `${svcName} — ${custName}` : svcName,
         description: b.note ?? '',
         start:       { dateTime: b.starts_at, timeZone: 'Europe/Prague' },
         end:         { dateTime: b.ends_at,   timeZone: 'Europe/Prague' },
-        sendUpdates: 'none',
+        ...(attendees.length > 0 ? { attendees, sendUpdates: 'all' } : { sendUpdates: 'none' }),
       }
 
       const gcalResp = await fetch(
