@@ -82,8 +82,7 @@ export default function Payment() {
 
       const { error } = await supabase
         .from('profiles')
-        .update({ is_subscribed: true })
-        .eq('id', user.id)
+        .upsert({ id: user.id, is_subscribed: true }, { onConflict: 'id' })
 
       if (error) { toast.error('Chyba při aktivaci: ' + error.message); return }
 

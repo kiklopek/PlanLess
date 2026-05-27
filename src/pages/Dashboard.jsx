@@ -3,10 +3,11 @@ import { Icons as I, Wave } from '../components/Icons.jsx';
 import '../styles/globals.css';
 import './Dashboard.css';
 import { useAuth } from '../contexts/AuthContext.jsx';
-import { fetchCalls } from '../lib/callsDb.js';
+import { fetchCalls, updateCallStatus } from '../lib/callsDb.js';
 import { fetchCustomers, upsertCustomer, deleteCustomerByPhone } from '../lib/customersDb.js';
 import { fetchServices, createService, updateService, deleteService } from '../lib/servicesDb.js';
-import { fetchBookings, createBooking } from '../lib/bookingsDb.js';
+import { fetchBookings, createBooking, deleteBooking } from '../lib/bookingsDb.js';
+import { createFollowup } from '../lib/followupsDb.js';
 import { getCompanySettings, saveCompanySettings } from '../lib/companySettings.js';
 import { SuggestedSlots } from '../components/SuggestedSlots.jsx';
 import toast from 'react-hot-toast';
@@ -255,7 +256,7 @@ const Dock = ({ title, crumb, right, aiOn }) => (
 /* ============================================================
    Today view
    ============================================================ */
-const TodayView = () => {
+const TodayView = ({ setNav, setCallSel }) => {
   const week = getCurrentWeek();
   const liveCall = CALLS.find((c) => c.live);
   const nowH = new Date().getHours() + new Date().getMinutes() / 60;
@@ -318,15 +319,14 @@ const TodayView = () => {
               </div>
               <Tag variant="live"><Wave size={9} />LIVE</Tag>
             </div>
-            <div className="what">
-              <div className="lab">Co Nikola právě řeší</div>
-              <div style={{ fontSize: 13.5, lineHeight: 1.55 }}>
-                Domlouvá <strong>barvení + střih</strong> na <strong>pátek 10:00 u Terezy</strong>. Alergie na amoniak je potvrzená v profilu.
+            {liveCall.summary && (
+              <div className="what">
+                <div className="lab">Co Nikola právě řeší</div>
+                <div style={{ fontSize: 13.5, lineHeight: 1.55 }}>{liveCall.summary}</div>
               </div>
-            </div>
+            )}
             <div className="row gap-2">
-              <Btn variant="accent" icon={I.Volume} size="sm">Poslouchat živě</Btn>
-              <Btn variant="ghost" icon={I.PhoneOff} size="sm">Převzít</Btn>
+              <Btn variant="ghost" icon={I.Volume} size="sm" disabled title="Živý odposlech bude dostupný po propojení s Twilio">Poslouchat živě</Btn>
             </div>
           </div>
         )}
@@ -373,8 +373,12 @@ const TodayView = () => {
                     <div style={{ fontSize: 13.5, fontWeight: 500 }}>{c.outcome.label}</div>
                     <div className="muted" style={{ fontSize: 12.5, marginTop: 3, lineHeight: 1.5 }}>{c.outcome.sub}</div>
                     <div className="row gap-2" style={{ marginTop: 10 }}>
-                      <Btn size="sm">Otevřít</Btn>
-                      {c.status === 'missed' && <Btn variant="ghost" size="sm" icon={I.Phone}>Zavolat zpět</Btn>}
+                      <Btn size="sm" onClick={() => { setCallSel(c.id); setNav('inbox'); }}>Otevřít</Btn>
+                      {c.status === 'missed' && c.phone && (
+                        <a href={`tel:${c.phone}`} style={{ textDecoration: 'none' }}>
+                          <Btn variant="ghost" size="sm" icon={I.Phone}>Zavolat zpět</Btn>
+                        </a>
+                      )}
                     </div>
                   </div>
                   <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{c.t}</div>
@@ -385,26 +389,27 @@ const TodayView = () => {
         </div>
       )}
 
-      <div className="card lg" style={{ background: 'linear-gradient(135deg, var(--accent-soft), transparent 70%), var(--paper)', borderColor: 'var(--accent-ring)' }}>
-        <div className="row gap-4" style={{ alignItems: 'flex-start' }}>
-          <div className="ai-pres" style={{ padding: 4, borderRadius: 50 }}>
-            <div className="av" style={{ width: 40, height: 40, fontSize: 14 }}>N</div>
-          </div>
-          <div style={{ flex: 1 }}>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>Nikola si všimla</div>
-            <div className="h-section" style={{ fontSize: 18, marginBottom: 8 }}>
-              Pátek je <span className="serif-it" style={{ color: 'var(--accent)' }}>vyprodaný</span>. Sobota má 4 volná místa dopoledne.
+      {missed > 0 && (
+        <div className="card lg" style={{ background: 'linear-gradient(135deg, var(--accent-soft), transparent 70%), var(--paper)', borderColor: 'var(--accent-ring)' }}>
+          <div className="row gap-4" style={{ alignItems: 'flex-start' }}>
+            <div className="ai-pres" style={{ padding: 4, borderRadius: 50 }}>
+              <div className="av" style={{ width: 40, height: 40, fontSize: 14 }}>N</div>
             </div>
-            <div className="muted" style={{ fontSize: 13.5, lineHeight: 1.6, maxWidth: 640 }}>
-              Když budou klienti volat na pátek, automaticky jim nabídnu sobotu. Pokud chcete, můžeme oslovit 3 stálé klientky, které obvykle chodí v pátek — pošlu jim SMS s nabídkou.
-            </div>
-            <div className="row gap-2" style={{ marginTop: 16 }}>
-              <Btn variant="accent" size="sm">Poslat SMS klientkám</Btn>
-              <Btn variant="ghost" size="sm">Zatím ne</Btn>
+            <div style={{ flex: 1 }}>
+              <div className="eyebrow" style={{ marginBottom: 8 }}>Vyžaduje pozornost</div>
+              <div className="h-section" style={{ fontSize: 18, marginBottom: 8 }}>
+                Dnes <span className="serif-it" style={{ color: 'var(--accent)' }}>{missed} zmeškaných</span> hovorů.
+              </div>
+              <div className="muted" style={{ fontSize: 13.5, lineHeight: 1.6, maxWidth: 640 }}>
+                Podívejte se na příchozí hovory a zavolejte klientům zpět.
+              </div>
+              <div className="row gap-2" style={{ marginTop: 16 }}>
+                <Btn variant="accent" size="sm" onClick={() => setNav('inbox')}>Přejít do Inboxu</Btn>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
@@ -456,12 +461,17 @@ const TranscriptTurn = ({ turn }) => (
 );
 
 const CallDetail = ({ call, onBookingCreated }) => {
+  const { user } = useAuth();
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [bookNote, setBookNote] = useState('');
+  const [smsModal, setSmsModal] = useState(false);
+  const [smsText, setSmsText] = useState('');
+  const [smsSending, setSmsSending] = useState(false);
 
   useEffect(() => {
     setSelectedServiceId('');
     setBookNote('');
+    setSmsModal(false);
   }, [call?.id]);
 
   if (!call) return null;
@@ -480,6 +490,33 @@ const CallDetail = ({ call, onBookingCreated }) => {
     if (onBookingCreated) onBookingCreated();
     return true;
   }
+
+  async function sendSms() {
+    if (!smsText.trim()) return;
+    setSmsSending(true);
+    try {
+      await createFollowup({ call_id: call.id, channel: 'sms', message: smsText.trim() });
+      toast.success('SMS zařazena do fronty.');
+      setSmsModal(false);
+      setSmsText('');
+    } catch (e) {
+      toast.error(e.message || 'Chyba při odesílání SMS.');
+    } finally {
+      setSmsSending(false);
+    }
+  }
+
+  async function markResolved() {
+    try {
+      await updateCallStatus(call.id, 'resolved');
+      toast.success('Hovor označen jako vyřešený.');
+    } catch (e) {
+      toast.error(e.message || 'Chyba.');
+    }
+  }
+
+  const inputStyle = { background: 'transparent', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink)', width: '100%' };
+
   return (
     <div className="detail">
       <div className="detail-hd">
@@ -489,7 +526,7 @@ const CallDetail = ({ call, onBookingCreated }) => {
             <div className="row gap-3" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
               <div className="h-display" style={{ fontSize: 28 }}>{call.who}</div>
               {call.vip && <Tag variant="accent"><I.StarF s={10} />VIP</Tag>}
-              {call.live && <Tag variant="live"><span className="d" />LIVE · 0:42</Tag>}
+              {call.live && <Tag variant="live"><span className="d" />LIVE</Tag>}
             </div>
             <div className="row gap-3 muted" style={{ fontSize: 12.5, marginTop: 6 }}>
               <span className="mono">{call.phone}</span>
@@ -497,12 +534,30 @@ const CallDetail = ({ call, onBookingCreated }) => {
               <span>{call.rel}</span>
             </div>
           </div>
-          <div className="row gap-2">
-            <Btn icon={I.Phone} size="sm">Zavolat zpět</Btn>
-            <Btn icon={I.Message} size="sm">SMS</Btn>
-            <Btn variant="ghost" icon={I.MoreH} size="sm" />
+          <div className="row gap-2" style={{ flexWrap: 'wrap' }}>
+            {call.phone && (
+              <a href={`tel:${call.phone}`} style={{ textDecoration: 'none' }}>
+                <Btn icon={I.Phone} size="sm">Zavolat zpět</Btn>
+              </a>
+            )}
+            <Btn icon={I.Message} size="sm" onClick={() => { setSmsText(`Dobrý den, ${call.who}, zde ${''}`); setSmsModal(v => !v); }}>SMS</Btn>
+            <Btn variant="ghost" icon={I.Check} size="sm" onClick={markResolved}>Vyřešeno</Btn>
           </div>
         </div>
+
+        {smsModal && (
+          <div className="card" style={{ marginBottom: 16, padding: 14 }}>
+            <div className="eyebrow" style={{ marginBottom: 10 }}>Odeslat SMS klientovi</div>
+            <div className="field" style={{ padding: '8px 12px', marginBottom: 10 }}>
+              <textarea value={smsText} onChange={e => setSmsText(e.target.value)} rows={3} placeholder="Text zprávy…" style={{ ...inputStyle, resize: 'vertical' }} />
+            </div>
+            <div className="row gap-2">
+              <Btn variant="accent" size="sm" onClick={sendSms} disabled={smsSending || !smsText.trim()}>{smsSending ? 'Odesílám…' : 'Zařadit do fronty'}</Btn>
+              <Btn variant="ghost" size="sm" onClick={() => setSmsModal(false)}>Zrušit</Btn>
+            </div>
+          </div>
+        )}
+
 
         <div className={cx('outcome', call.live && 'live')}>
           <div className="ic">
@@ -522,11 +577,10 @@ const CallDetail = ({ call, onBookingCreated }) => {
                 <Btn variant="ghost" icon={I.Edit} size="sm">Upravit</Btn>
               </div>
             )}
-            {o.kind === 'missed' && (
-              <Btn size="sm" icon={I.Phone} style={{ marginTop: 12 }}>Zavolat zpět</Btn>
-            )}
-            {o.kind === 'resched' && (
-              <Btn size="sm" style={{ marginTop: 12 }}>Zobrazit nový termín</Btn>
+            {o.kind === 'missed' && call.phone && (
+              <a href={`tel:${call.phone}`} style={{ textDecoration: 'none', display: 'inline-block', marginTop: 12 }}>
+                <Btn size="sm" icon={I.Phone}>Zavolat zpět</Btn>
+              </a>
             )}
           </div>
         </div>
@@ -560,8 +614,7 @@ const CallDetail = ({ call, onBookingCreated }) => {
                 Přepis hovoru <span style={{ color: 'var(--live)', marginLeft: 10 }}><Wave size={11} /> živě</span>
               </div>
               <div className="row gap-2">
-                <Btn variant="ghost" icon={I.Volume} size="sm">Poslouchat</Btn>
-                <Btn variant="ghost" icon={I.Download} size="sm">Stáhnout</Btn>
+                <Btn variant="ghost" icon={I.Volume} size="sm" disabled title="Dostupné po propojení s Twilio">Poslouchat</Btn>
               </div>
             </div>
             <div className="tr">
@@ -683,14 +736,19 @@ const TodayHero = () => {
 
 const InboxView = ({ selId, setSelId, onBookingCreated }) => {
   const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
   const filtered = useMemo(() => {
-    if (filter === 'all') return CALLS;
-    if (filter === 'attn') return CALLS.filter((c) => ['missed', 'resched', 'cancel'].includes(c.status));
-    if (filter === 'book') return CALLS.filter((c) => c.live || c.status === 'booked' || c.status === 'new');
-    if (filter === 'missed') return CALLS.filter((c) => c.status === 'missed');
-    return CALLS;
-  }, [filter]);
-  const sel = CALLS.find((c) => c.id === selId) || CALLS[0];
+    let list = CALLS;
+    if (filter === 'attn') list = list.filter((c) => ['missed', 'resched', 'cancel'].includes(c.status));
+    else if (filter === 'book') list = list.filter((c) => c.live || c.status === 'booked' || c.status === 'new');
+    else if (filter === 'missed') list = list.filter((c) => c.status === 'missed');
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(c => c.who?.toLowerCase().includes(q) || c.phone?.includes(q) || c.summary?.toLowerCase().includes(q));
+    }
+    return list;
+  }, [filter, search]);
+  const sel = CALLS.find((c) => c.id === selId) ?? CALLS[0];
 
   return (
     <div>
@@ -719,14 +777,13 @@ const InboxView = ({ selId, setSelId, onBookingCreated }) => {
           <div className="list-hd">
             <div className="field">
               <I.Search />
-              <input placeholder="Hledat v přepisech, jménech, číslech…" />
-              <span className="kbd">⌘K</span>
+              <input placeholder="Hledat v přepisech, jménech, číslech…" value={search} onChange={e => setSearch(e.target.value)} />
             </div>
           </div>
           <div className="list-body">
             {filtered.length === 0 && (
               <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
-                Žádné hovory zatím. Nikola je připravená.
+                {search ? 'Žádné výsledky.' : 'Žádné hovory zatím. Nikola je připravená.'}
               </div>
             )}
             {filtered.map((c) => (
@@ -743,9 +800,34 @@ const InboxView = ({ selId, setSelId, onBookingCreated }) => {
 /* ============================================================
    Calendar view
    ============================================================ */
-const CalendarView = ({ aiOn }) => {
+function getWeekFromDate(anchorDate) {
+  const d = new Date(anchorDate);
+  const dayOfWeek = (d.getDay() + 6) % 7;
+  const weekStart = new Date(d);
+  weekStart.setDate(weekStart.getDate() - dayOfWeek);
+  weekStart.setHours(0, 0, 0, 0);
+  return {
+    days: Array.from({ length: 7 }, (_, i) => {
+      const dd = new Date(weekStart);
+      dd.setDate(dd.getDate() + i);
+      return { s: CZ_DAYS[i], d: dd.getDate(), date: dd };
+    }),
+    todayCol: (new Date().getDay() + 6) % 7,
+    weekStart,
+    weekEnd: new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000),
+  };
+}
+
+const CalendarView = ({ onRefresh }) => {
+  const { user } = useAuth();
   const [staff, setStaff] = useState('all');
   const [view, setView] = useState('week');
+  const [anchor, setAnchor] = useState(() => new Date());
+  const [bookingModal, setBookingModal] = useState(false);
+  const [selEvent, setSelEvent] = useState(null);
+  const [bForm, setBForm] = useState({ date: '', time: '09:00', serviceId: '', note: '' });
+  const [bSaving, setBSaving] = useState(false);
+
   const ROW_H = 60;
   const START_H = 9;
   const END_H = 19;
@@ -755,39 +837,141 @@ const CalendarView = ({ aiOn }) => {
   const nowDate = new Date();
   const nowH = nowDate.getHours() + nowDate.getMinutes() / 60;
   const nowTop = (nowH - START_H) * ROW_H;
-  const week = getCurrentWeek();
-  const monthLabel = CZ_MONTH_NAMES[nowDate.getMonth()];
 
-  const events = EVENTS.filter((e) => staff === 'all' || e.who.toLowerCase().includes(staff));
+  const week = getWeekFromDate(anchor);
+  const isCurrentWeek = week.weekStart.toDateString() === getWeekFromDate(new Date()).weekStart.toDateString();
+  const monthLabel = CZ_MONTH_NAMES[anchor.getMonth()];
+
+  const events = EVENTS.filter((e) => {
+    if (!e.starts_at) return false;
+    const es = new Date(e.starts_at);
+    return es >= week.weekStart && es < week.weekEnd;
+  }).map(e => {
+    const start = new Date(e.starts_at);
+    return { ...e, col: (start.getDay() + 6) % 7, s: start.getHours() + start.getMinutes() / 60 };
+  }).filter((e) => staff === 'all' || e.who?.toLowerCase().includes(staff));
+
+  const navigate = (dir) => {
+    setAnchor(a => {
+      const d = new Date(a);
+      d.setDate(d.getDate() + dir * 7);
+      return d;
+    });
+  };
+
+  const openBooking = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    setBForm({ date: today, time: '09:00', serviceId: SERVICES[0]?.id ?? '', note: '' });
+    setBookingModal(true);
+  };
+
+  const saveBooking = async () => {
+    if (!bForm.date || !bForm.serviceId) { toast.error('Vyplňte datum a službu.'); return; }
+    const service = SERVICES.find(s => s.id === bForm.serviceId);
+    if (!service) { toast.error('Služba nenalezena.'); return; }
+    const starts = new Date(`${bForm.date}T${bForm.time}:00`);
+    const ends = new Date(starts.getTime() + service.d * 60000);
+    setBSaving(true);
+    try {
+      await createBooking({ user_id: user.id, service_id: bForm.serviceId, starts_at: starts.toISOString(), ends_at: ends.toISOString(), note: bForm.note });
+      toast.success('Rezervace vytvořena.');
+      setBookingModal(false);
+      setAnchor(starts);
+      await onRefresh();
+    } catch (e) {
+      toast.error(e.message || 'Chyba při ukládání.');
+    } finally {
+      setBSaving(false);
+    }
+  };
+
+  const deleteEvt = async (id) => {
+    try {
+      await deleteBooking(id);
+      toast.success('Rezervace smazána.');
+      setSelEvent(null);
+      await onRefresh();
+    } catch (e) {
+      toast.error(e.message || 'Chyba při mazání.');
+    }
+  };
+
+  const inputStyle = { background: 'transparent', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink)', width: '100%' };
 
   return (
     <div>
       <div className="cal-toolbar">
         <div className="row gap-3" style={{ alignItems: 'center' }}>
-          <Btn variant="ghost" icon={I.ChevLeft} size="sm" />
-          <div className="cal-month">{monthLabel} <span className="it">{nowDate.getFullYear()}</span></div>
-          <Btn variant="ghost" icon={I.ChevRight} size="sm" />
-          <Btn variant="ghost" size="sm">Dnes</Btn>
+          <Btn variant="ghost" icon={I.ChevLeft} size="sm" onClick={() => navigate(-1)} />
+          <div className="cal-month">{monthLabel} <span className="it">{anchor.getFullYear()}</span></div>
+          <Btn variant="ghost" icon={I.ChevRight} size="sm" onClick={() => navigate(1)} />
+          {!isCurrentWeek && <Btn variant="ghost" size="sm" onClick={() => setAnchor(new Date())}>Dnes</Btn>}
         </div>
         <div className="row gap-3" style={{ flexWrap: 'wrap' }}>
-          <Seg
-            items={[{ v: 'day', l: 'Den' }, { v: 'week', l: 'Týden' }, { v: 'month', l: 'Měsíc' }]}
-            value={view}
-            onChange={setView}
-          />
-          <Seg
-            items={[{ v: 'all', l: 'Všichni' }]}
-            value={staff}
-            onChange={setStaff}
-          />
-          <Btn variant="accent" icon={I.Plus} size="sm">Nová rezervace</Btn>
+          <Seg items={[{ v: 'week', l: 'Týden' }]} value={view} onChange={setView} />
+          <Seg items={[{ v: 'all', l: 'Všichni' }]} value={staff} onChange={setStaff} />
+          <Btn variant="accent" icon={I.Plus} size="sm" onClick={openBooking}>Nová rezervace</Btn>
         </div>
       </div>
+
+      {bookingModal && (
+        <div className="card lg" style={{ marginBottom: 16, padding: 20 }}>
+          <div className="eyebrow" style={{ marginBottom: 14 }}>Nová rezervace</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+            <label className="col gap-2">
+              <span className="lbl">Datum</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input type="date" value={bForm.date} onChange={e => setBForm(f => ({ ...f, date: e.target.value }))} style={inputStyle} />
+              </div>
+            </label>
+            <label className="col gap-2">
+              <span className="lbl">Čas</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input type="time" value={bForm.time} onChange={e => setBForm(f => ({ ...f, time: e.target.value }))} style={inputStyle} />
+              </div>
+            </label>
+            <label className="col gap-2" style={{ gridColumn: '1 / -1' }}>
+              <span className="lbl">Služba</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <select value={bForm.serviceId} onChange={e => setBForm(f => ({ ...f, serviceId: e.target.value }))} style={{ ...inputStyle }}>
+                  <option value="">— vyberte —</option>
+                  {SERVICES.map(s => <option key={s.id} value={s.id}>{s.name} ({s.d} min)</option>)}
+                </select>
+              </div>
+            </label>
+            <label className="col gap-2" style={{ gridColumn: '1 / -1' }}>
+              <span className="lbl">Poznámka (volitelná)</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input placeholder="Poznámka k rezervaci…" value={bForm.note} onChange={e => setBForm(f => ({ ...f, note: e.target.value }))} style={inputStyle} />
+              </div>
+            </label>
+          </div>
+          <div className="row gap-2">
+            <Btn variant="accent" size="sm" onClick={saveBooking} disabled={bSaving}>{bSaving ? 'Ukládám…' : 'Vytvořit rezervaci'}</Btn>
+            <Btn variant="ghost" size="sm" onClick={() => setBookingModal(false)}>Zrušit</Btn>
+          </div>
+        </div>
+      )}
+
+      {selEvent && (
+        <div className="card" style={{ marginBottom: 16, padding: 16 }}>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>{selEvent.t}</div>
+              <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>{fmtTime(selEvent.s)} – {fmtTime(selEvent.e)}</div>
+            </div>
+            <div className="row gap-2">
+              <Btn variant="ghost" size="sm" icon={I.X} onClick={() => deleteEvt(selEvent.id)}>Zrušit rezervaci</Btn>
+              <Btn variant="ghost" size="sm" icon={I.X} onClick={() => setSelEvent(null)} />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="cal">
         <div className="cal-h gut" />
         {week.days.map((w, i) => (
-          <div key={i} className={cx('cal-h', i === week.todayCol && 'today')}>
+          <div key={i} className={cx('cal-h', i === week.todayCol && isCurrentWeek && 'today')}>
             <div>{w.s}</div>
             <div className="d">{w.d}</div>
           </div>
@@ -799,29 +983,26 @@ const CalendarView = ({ aiOn }) => {
 
         {week.days.map((w, col) => {
           const dim = col === 6;
+          const colEvents = events.filter((e) => e.col === col);
           return (
             <div key={col} className={cx('cal-col', dim && 'dim')}>
               {hours.map((h) => <div key={h} className="cal-cell" />)}
-              {events.filter((e) => e.col === col).map((e, i) => {
+              {colEvents.map((e, i) => {
                 const top = (e.s - START_H) * ROW_H;
                 const height = Math.max((e.e - e.s) * ROW_H - 4, 20);
                 return (
                   <div
                     key={i}
-                    className={cx('evt', e.c, e.ai && 'ai-suggest')}
-                    style={{ top, height }}
+                    className={cx('evt', e.c, e.ai && 'ai-suggest', selEvent?.id === e.id && 'on')}
+                    style={{ top, height, cursor: 'pointer' }}
+                    onClick={() => setSelEvent(selEvent?.id === e.id ? null : e)}
                   >
                     <div className="t">{e.t}</div>
                     <div className="s">{fmtTime(e.s)}–{fmtTime(e.e)}</div>
                   </div>
                 );
               })}
-              {events.filter(e => e.col === col).length === 0 && (
-                <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}>
-                  <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>volno</span>
-                </div>
-              )}
-              {col === week.todayCol && (
+              {col === week.todayCol && isCurrentWeek && (
                 <div className="now-line" style={{ top: nowTop }}>
                   <div className="ball" />
                 </div>
@@ -832,11 +1013,7 @@ const CalendarView = ({ aiOn }) => {
       </div>
 
       <div className="row gap-4" style={{ marginTop: 18, flexWrap: 'wrap' }}>
-        <Tag variant="accent"><span className="d" />Standardní rezervace</Tag>
-        <Tag variant="live"><span className="d" />Barvení / dlouhé</Tag>
-        <Tag variant="warn"><span className="d" />Přesunuté</Tag>
-        <Tag variant="info"><span className="d" />Styling / účes</Tag>
-        <Tag><span className="d" style={{ background: 'var(--accent)' }} />Návrh AI (čekací)</Tag>
+        <Tag variant="accent"><span className="d" />Rezervace</Tag>
       </div>
     </div>
   );
@@ -858,11 +1035,49 @@ const ClientRow = ({ c, on, onClick }) => (
   </div>
 );
 
-const ClientsView = () => {
+const ClientsView = ({ onRefresh, onNavigate }) => {
+  const { user } = useAuth();
   const [sel, setSel] = useState(null);
   const [q, setQ] = useState('');
-  const filtered = q ? CLIENTS.filter((c) => c.name.toLowerCase().includes(q.toLowerCase())) : CLIENTS;
-  const client = CLIENTS.find((c) => c.id === sel) || CLIENTS[0];
+  const [addModal, setAddModal] = useState(false);
+  const [form, setForm] = useState({ name: '', phone: '', email: '', vip: false });
+  const [saving, setSaving] = useState(false);
+  const filtered = q
+    ? CLIENTS.filter((c) => c.name.toLowerCase().includes(q.toLowerCase()) || (c.phone || '').includes(q))
+    : CLIENTS;
+  const client = CLIENTS.find((c) => c.id === sel) ?? (CLIENTS.length > 0 ? CLIENTS[0] : null);
+
+  const clientBookings = client ? EVENTS.filter(e => e.who === client.name).slice(0, 5) : [];
+  const clientCalls = client ? CALLS.filter(c => c.phone === client.phone).slice(0, 5) : [];
+
+  const saveClient = async () => {
+    if (!form.phone.trim()) { toast.error('Zadejte telefonní číslo.'); return; }
+    setSaving(true);
+    try {
+      await upsertCustomer({ user_id: user.id, name: form.name.trim() || form.phone, phone: form.phone.trim(), notes: '', vip_status: form.vip });
+      toast.success('Klient přidán.');
+      setAddModal(false);
+      setForm({ name: '', phone: '', email: '', vip: false });
+      await onRefresh();
+    } catch (e) {
+      toast.error(e.message || 'Chyba při ukládání.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeClient = async (phone) => {
+    try {
+      await deleteCustomerByPhone(phone);
+      toast.success('Klient smazán.');
+      setSel(null);
+      await onRefresh();
+    } catch (e) {
+      toast.error(e.message || 'Chyba při mazání.');
+    }
+  };
+
+  const inputStyle = { background: 'transparent', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink)', width: '100%' };
 
   return (
     <div className="clients">
@@ -870,17 +1085,40 @@ const ClientsView = () => {
         <div className="list-hd">
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
             <div className="h-section" style={{ fontSize: 18 }}>Klienti</div>
-            <Btn variant="ghost" icon={I.Plus} size="sm" />
+            <Btn variant="ghost" icon={I.Plus} size="sm" onClick={() => setAddModal(true)} />
           </div>
           <div className="field">
             <I.Search />
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Hledat…" />
           </div>
         </div>
+
+        {addModal && (
+          <div className="card" style={{ margin: '0 0 12px', padding: 16 }}>
+            <div className="eyebrow" style={{ marginBottom: 12 }}>Nový klient</div>
+            <div className="col gap-2" style={{ marginBottom: 12 }}>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input placeholder="Jméno" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} autoFocus />
+              </div>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input placeholder="Telefon *" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} style={inputStyle} />
+              </div>
+              <div className="row gap-2" style={{ alignItems: 'center', fontSize: 13 }}>
+                <Switch on={form.vip} onChange={v => setForm(f => ({ ...f, vip: v }))} />
+                <span className="muted">VIP klient</span>
+              </div>
+            </div>
+            <div className="row gap-2">
+              <Btn variant="accent" size="sm" onClick={saveClient} disabled={saving}>{saving ? 'Ukládám…' : 'Přidat'}</Btn>
+              <Btn variant="ghost" size="sm" onClick={() => setAddModal(false)}>Zrušit</Btn>
+            </div>
+          </div>
+        )}
+
         <div className="list-body">
           {filtered.length === 0 && (
             <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
-              {q ? 'Žádné výsledky.' : 'Zatím žádní klienti. Přidají se automaticky po prvním hovoru.'}
+              {q ? 'Žádné výsledky.' : 'Zatím žádní klienti. Přidají se automaticky po prvním hovoru nebo je přidejte ručně.'}
             </div>
           )}
           {filtered.map((c) => (
@@ -905,26 +1143,30 @@ const ClientsView = () => {
                 </div>
                 <div className="row gap-4 muted" style={{ fontSize: 13, marginTop: 10, flexWrap: 'wrap' }}>
                   <span className="row gap-2"><I.Phone s={12} /><span className="mono">{client.phone}</span></span>
-                  <span className="row gap-2"><I.Clock s={12} />Poslední: {client.last}</span>
-                  <span className="row gap-2"><I.Scissors s={12} />{client.fav}</span>
+                  {client.last !== '—' && <span className="row gap-2"><I.Clock s={12} />Poslední: {client.last}</span>}
                 </div>
               </div>
               <div className="row gap-2">
-                <Btn icon={I.Phone} size="sm">Zavolat</Btn>
-                <Btn variant="accent" icon={I.Plus} size="sm">Rezervovat</Btn>
+                {client.phone && (
+                  <a href={`tel:${client.phone}`} style={{ textDecoration: 'none' }}>
+                    <Btn icon={I.Phone} size="sm">Zavolat</Btn>
+                  </a>
+                )}
+                <Btn variant="accent" icon={I.Plus} size="sm" onClick={() => onNavigate('calendar')}>Rezervovat</Btn>
+                <Btn variant="ghost" icon={I.X} size="sm" onClick={() => removeClient(client.phone)} />
               </div>
             </div>
             {client.note && (
               <div className="note" style={{ marginTop: 22 }}>
                 <div className="ic"><I.Sparkle s={16} /></div>
-                <div className="body"><strong>Co si Nikola pamatuje:</strong> {client.note}</div>
+                <div className="body"><strong>Poznámka:</strong> {client.note}</div>
               </div>
             )}
           </div>
 
           <div className="stat-grid">
-            <div className="stat"><div className="n">{client.visits}</div><div className="l">návštěv celkem</div></div>
-            <div className="stat"><div className="n">{fmtPrice(client.spend)}</div><div className="l">útrata u vás</div></div>
+            <div className="stat"><div className="n">{clientBookings.length}</div><div className="l">rezervací celkem</div></div>
+            <div className="stat"><div className="n">{clientCalls.length}</div><div className="l">hovorů celkem</div></div>
             <div className="stat"><div className="n">—</div><div className="l">průměr mezi návštěvami</div></div>
             <div className="stat"><div className="n">—</div><div className="l">dochvilnost</div></div>
           </div>
@@ -934,12 +1176,29 @@ const ClientsView = () => {
               <div className="h-section" style={{ fontSize: 18 }}>Aktivita</div>
             </div>
             <div className="tl">
-              <div className="tl-item">
-                <div className="tl-d"><I.Phone /></div>
-                <div className="tl-t">Aktivita se načte z databáze</div>
-                <div className="tl-x">Po propojení systémů se zde zobrazí historia hovorů a rezervací.</div>
-                <div className="tl-w">{client.last}</div>
-              </div>
+              {clientBookings.length === 0 && clientCalls.length === 0 && (
+                <div className="tl-item">
+                  <div className="tl-d"><I.Calendar /></div>
+                  <div className="tl-t">Zatím žádná aktivita</div>
+                  <div className="tl-x">Rezervace a hovory se zobrazí automaticky.</div>
+                </div>
+              )}
+              {clientBookings.map((e, i) => (
+                <div key={i} className="tl-item">
+                  <div className="tl-d"><I.Calendar /></div>
+                  <div className="tl-t">{e.t}</div>
+                  <div className="tl-x">Rezervace</div>
+                  <div className="tl-w">{fmtTime(e.s)}</div>
+                </div>
+              ))}
+              {clientCalls.map((c) => (
+                <div key={c.id} className="tl-item">
+                  <div className="tl-d"><I.Phone /></div>
+                  <div className="tl-t">{c.outcome?.label ?? 'Hovor'}</div>
+                  <div className="tl-x">{c.summary || ''}</div>
+                  <div className="tl-w">{c.t}</div>
+                </div>
+              ))}
             </div>
           </div>
         </>)}
@@ -951,10 +1210,53 @@ const ClientsView = () => {
 /* ============================================================
    Services view
    ============================================================ */
-const ServicesView = () => {
+const ServicesView = ({ onRefresh }) => {
+  const { user } = useAuth();
   const [cat, setCat] = useState('all');
+  const [modal, setModal] = useState(null); // null | {} (new) | {...service} (edit)
+  const [menuId, setMenuId] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ name: '', duration_min: 30, price: '', buffer_after_min: 0 });
+
   const cats = ['all', ...Array.from(new Set(SERVICES.map((s) => s.cat)))];
   const rows = cat === 'all' ? SERVICES : SERVICES.filter((s) => s.cat === cat);
+
+  const openNew = () => { setForm({ name: '', duration_min: 30, price: '', buffer_after_min: 0 }); setModal({}); };
+  const openEdit = (s) => { setForm({ name: s.name, duration_min: s.d, price: s.p ?? '', buffer_after_min: s.buffer_after_min ?? 0 }); setModal(s); setMenuId(null); };
+
+  const save = async () => {
+    if (!form.name.trim()) { toast.error('Zadejte název služby.'); return; }
+    setSaving(true);
+    try {
+      const payload = { name: form.name.trim(), duration_min: Number(form.duration_min) || 30, price: form.price !== '' ? Number(form.price) : null, buffer_after_min: Number(form.buffer_after_min) || 0 };
+      if (modal?.id) {
+        await updateService(modal.id, payload);
+        toast.success('Služba upravena.');
+      } else {
+        await createService({ user_id: user.id, ...payload });
+        toast.success('Služba přidána.');
+      }
+      setModal(null);
+      await onRefresh();
+    } catch (e) {
+      toast.error(e.message || 'Chyba při ukládání.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (id) => {
+    setMenuId(null);
+    try {
+      await deleteService(id);
+      toast.success('Služba smazána.');
+      await onRefresh();
+    } catch (e) {
+      toast.error(e.message || 'Chyba při mazání.');
+    }
+  };
+
+  const inputStyle = { background: 'transparent', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink)', width: '100%' };
 
   return (
     <div>
@@ -967,10 +1269,45 @@ const ServicesView = () => {
           ))}
         </div>
         <div className="row gap-2">
-          <Btn variant="ghost" icon={I.Upload} size="sm">Import</Btn>
-          <Btn variant="accent" icon={I.Plus} size="sm">Nová služba</Btn>
+          <Btn variant="accent" icon={I.Plus} size="sm" onClick={openNew}>Nová služba</Btn>
         </div>
       </div>
+
+      {modal !== null && (
+        <div className="card lg" style={{ marginBottom: 20, padding: 20 }}>
+          <div className="eyebrow" style={{ marginBottom: 14 }}>{modal?.id ? 'Upravit službu' : 'Nová služba'}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+            <label className="col gap-2" style={{ gridColumn: '1 / -1' }}>
+              <span className="lbl">Název</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input placeholder="Např. Střih + foukaná" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} autoFocus />
+              </div>
+            </label>
+            <label className="col gap-2">
+              <span className="lbl">Délka (min)</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input type="number" min="5" step="5" value={form.duration_min} onChange={e => setForm(f => ({ ...f, duration_min: e.target.value }))} style={inputStyle} />
+              </div>
+            </label>
+            <label className="col gap-2">
+              <span className="lbl">Cena (Kč)</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input type="number" min="0" placeholder="nepovinné" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} style={inputStyle} />
+              </div>
+            </label>
+            <label className="col gap-2">
+              <span className="lbl">Buffer po službě (min)</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input type="number" min="0" step="5" value={form.buffer_after_min} onChange={e => setForm(f => ({ ...f, buffer_after_min: e.target.value }))} style={inputStyle} />
+              </div>
+            </label>
+          </div>
+          <div className="row gap-2">
+            <Btn variant="accent" size="sm" onClick={save} disabled={saving}>{saving ? 'Ukládám…' : modal?.id ? 'Uložit změny' : 'Přidat službu'}</Btn>
+            <Btn variant="ghost" size="sm" onClick={() => setModal(null)}>Zrušit</Btn>
+          </div>
+        </div>
+      )}
 
       <div className="svc-table">
         <table>
@@ -979,34 +1316,34 @@ const ServicesView = () => {
               <th>Služba</th>
               <th style={{ width: 110 }}>Délka</th>
               <th style={{ width: 130 }}>Cena</th>
-              <th>Kdo dělá</th>
-              <th style={{ width: 130, textAlign: 'right' }}>Rezervace (30d)</th>
               <th style={{ width: 110 }}>Stav</th>
               <th style={{ width: 60 }} />
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
-              <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
-                Zatím žádné služby. Přidejte první tlačítkem výše.
+              <tr><td colSpan={5} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
+                Zatím žádné služby. Klikněte + Nová služba.
               </td></tr>
             )}
             {rows.map((s) => (
               <tr key={s.id}>
                 <td>
                   <div className="svc-name">{s.name}</div>
-                  <div className="svc-cat">{s.cat}</div>
+                  {s.buffer_after_min > 0 && <div className="svc-cat">+{s.buffer_after_min} min buffer</div>}
                 </td>
                 <td className="num muted">{s.d} min</td>
-                <td className="num" style={{ fontWeight: 500 }}>{fmtPrice(s.p)}</td>
-                <td><div className="svc-tags">{(s.st || []).map((p) => <Tag key={p}>{p}</Tag>)}</div></td>
-                <td className="num muted" style={{ textAlign: 'right' }}>{s.b}</td>
-                <td>
-                  {s.on
-                    ? <Tag variant="live"><span className="d" />Aktivní</Tag>
-                    : <Tag><span className="d" />Neaktivní</Tag>}
+                <td className="num" style={{ fontWeight: 500 }}>{s.p != null ? fmtPrice(s.p) : '—'}</td>
+                <td><Tag variant="live"><span className="d" />Aktivní</Tag></td>
+                <td style={{ position: 'relative' }}>
+                  <Btn variant="ghost" icon={I.MoreH} size="sm" onClick={() => setMenuId(menuId === s.id ? null : s.id)} />
+                  {menuId === s.id && (
+                    <div className="card" style={{ position: 'absolute', right: 0, top: '100%', zIndex: 20, padding: '6px 0', minWidth: 140, boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}>
+                      <button onClick={() => openEdit(s)} style={{ display: 'block', width: '100%', padding: '8px 16px', background: 'none', border: 'none', color: 'var(--ink)', fontSize: 13, textAlign: 'left', cursor: 'pointer' }}>Upravit</button>
+                      <button onClick={() => remove(s.id)} style={{ display: 'block', width: '100%', padding: '8px 16px', background: 'none', border: 'none', color: '#f87171', fontSize: 13, textAlign: 'left', cursor: 'pointer' }}>Smazat</button>
+                    </div>
+                  )}
                 </td>
-                <td><Btn variant="ghost" icon={I.MoreH} size="sm" /></td>
               </tr>
             ))}
           </tbody>
@@ -1019,12 +1356,36 @@ const ServicesView = () => {
 /* ============================================================
    Settings view
    ============================================================ */
-const SetAI = () => {
-  const [voice, setVoice] = useState('nikola');
-  const [tone, setTone] = useState('warm');
-  const [autoBook, setAutoBook] = useState(true);
-  const [confirmSms, setConfirmSms] = useState(true);
-  const [record, setRecord] = useState(true);
+const SetAI = ({ user, companySettings, onSettingsSaved }) => {
+  const [voice, setVoice] = useState(() => companySettings?.ai_voice ?? 'nikola');
+  const [tone, setTone] = useState(() => companySettings?.ai_tone ?? 'warm');
+  const [autoBook, setAutoBook] = useState(() => companySettings?.ai_auto_book ?? true);
+  const [confirmSms, setConfirmSms] = useState(() => companySettings?.ai_confirm_sms ?? true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!companySettings) return;
+    setVoice(companySettings.ai_voice ?? 'nikola');
+    setTone(companySettings.ai_tone ?? 'warm');
+    setAutoBook(companySettings.ai_auto_book ?? true);
+    setConfirmSms(companySettings.ai_confirm_sms ?? true);
+  }, [companySettings]);
+
+  const companyName = companySettings?.company_name || 'váš salon';
+
+  const save = async () => {
+    if (!user) return;
+    setSaving(true);
+    try {
+      const saved = await saveCompanySettings(user.id, { ...(companySettings ?? {}), ai_voice: voice, ai_tone: tone, ai_auto_book: autoBook, ai_confirm_sms: confirmSms });
+      onSettingsSaved?.(saved);
+      toast.success('Nastavení AI uloženo.');
+    } catch (e) {
+      toast.error(e.message || 'Chyba při ukládání.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const voices = [
     { id: 'nikola', name: 'Nikola', ds: 'Teplý, konverzační',   tg: ['CZ', 'ženský', 'neutrální'] },
@@ -1042,14 +1403,14 @@ const SetAI = () => {
       <div className="form-row">
         <div>
           <div className="lbl">Hlas</div>
-          <div className="desc">Jak Nikola zní. Klikněte na ▶ pro ukázku.</div>
+          <div className="desc">Výběr hlasu bude dostupný po propojení s telefonií.</div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
           {voices.map((v) => (
             <div key={v.id} className={cx('voice-card', voice === v.id && 'on')} onClick={() => setVoice(v.id)}>
               <div className="h">
                 <div className="nm">{v.name}</div>
-                <Btn variant="ghost" size="sm" icon={I.Play} onClick={(e) => e.stopPropagation()} />
+                <Btn variant="ghost" size="sm" icon={I.Play} disabled title="Ukázky hlasů budou dostupné po propojení s Twilio" onClick={(e) => e.stopPropagation()} />
               </div>
               <div className="ds">{v.ds}</div>
               <div className="tgs">{v.tg.map((t) => <Tag key={t}>{t}</Tag>)}</div>
@@ -1068,9 +1429,9 @@ const SetAI = () => {
           <div className="card thin" style={{ background: 'rgba(255,255,255,0.02)' }}>
             <div className="eyebrow" style={{ marginBottom: 8 }}>Náhled</div>
             <div className="serif-it" style={{ fontSize: 15, lineHeight: 1.55, color: 'var(--ink-2)' }}>
-              {tone === 'warm'   && '„Dobrý den, salon Svatopluk, Nikola u telefonu. Jak vám mohu pomoci?"'}
-              {tone === 'formal' && '„Dobrý den, salon Svatopluk, u telefonu Nikola. S čím mohu posloužit?"'}
-              {tone === 'short'  && '„Salon Svatopluk, dobrý den."'}
+              {tone === 'warm'   && `„Dobrý den, ${companyName}, Nikola u telefonu. Jak vám mohu pomoci?"`}
+              {tone === 'formal' && `„Dobrý den, ${companyName}, u telefonu Nikola. S čím mohu posloužit?"`}
+              {tone === 'short'  && `„${companyName}, dobrý den."`}
             </div>
           </div>
         </div>
@@ -1091,49 +1452,75 @@ const SetAI = () => {
         <Switch on={confirmSms} onChange={setConfirmSms} />
       </div>
       <div className="form-row">
-        <div>
-          <div className="lbl">Nahrávání hovorů</div>
-          <div className="desc">Uchováváme přepisy 90 dní, zvuk 30 dní. Klient je informován.</div>
+        <div style={{ marginTop: 8 }}>
+          <Btn variant="accent" size="sm" onClick={save} disabled={saving}>{saving ? 'Ukládám…' : 'Uložit nastavení'}</Btn>
         </div>
-        <Switch on={record} onChange={setRecord} />
       </div>
     </div>
   );
 };
 
-const SetHours = () => {
-  const [days, setDays] = useState([
-    { d: 'Pondělí', on: true,  from: '10:00', to: '19:00' },
-    { d: 'Úterý',   on: true,  from: '09:00', to: '19:00' },
-    { d: 'Středa',  on: true,  from: '09:00', to: '19:00' },
-    { d: 'Čtvrtek', on: true,  from: '09:00', to: '20:00' },
-    { d: 'Pátek',   on: true,  from: '09:00', to: '20:00' },
-    { d: 'Sobota',  on: true,  from: '08:00', to: '14:00' },
-    { d: 'Neděle',  on: false, from: '—',     to: '—'     },
-  ]);
+const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const DAY_LABELS = ['Pondělí', 'Úterý', 'Středa', 'Čtvrtek', 'Pátek', 'Sobota', 'Neděle'];
+
+function workingHoursToDays(wh) {
+  return DAY_KEYS.map((key, i) => {
+    const intervals = (wh ?? {})[key] ?? [];
+    const first = intervals[0];
+    return { d: DAY_LABELS[i], key, on: intervals.length > 0, from: first?.start ?? '09:00', to: first?.end ?? '17:00' };
+  });
+}
+
+function daysToWorkingHours(days) {
+  return Object.fromEntries(days.map(d => [d.key, d.on ? [{ start: d.from, end: d.to }] : []]));
+}
+
+const SetHours = ({ user, companySettings, onSettingsSaved }) => {
+  const [days, setDays] = useState(() => workingHoursToDays(companySettings?.working_hours));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setDays(workingHoursToDays(companySettings?.working_hours));
+  }, [companySettings]);
+
   const toggle = (i) => {
-    const n = [...days];
-    n[i] = { ...n[i], on: !n[i].on };
-    setDays(n);
+    setDays(prev => { const n = [...prev]; n[i] = { ...n[i], on: !n[i].on }; return n; });
   };
+  const setTime = (i, field, val) => {
+    setDays(prev => { const n = [...prev]; n[i] = { ...n[i], [field]: val }; return n; });
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const saved = await saveCompanySettings(user.id, { ...(companySettings ?? {}), working_hours: daysToWorkingHours(days) });
+      onSettingsSaved(saved);
+      toast.success('Provozní doba uložena.');
+    } catch (e) {
+      toast.error(e.message || 'Chyba při ukládání.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputStyle = { background: 'transparent', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink)', width: 60 };
 
   return (
     <div className="card lg">
       <div className="eyebrow">Provozní doba</div>
       <div className="h-section" style={{ marginTop: 8, marginBottom: 22, fontSize: 22 }}>Kdy přijímáte klienty</div>
       {days.map((d, i) => (
-        <div key={d.d} className="hours-row">
+        <div key={d.key} className="hours-row">
           <div className="dow">{d.d}</div>
           {d.on ? (
             <div className="row gap-2">
               <div className="field" style={{ padding: '6px 12px', fontSize: 13, minWidth: 90 }}>
-                <span className="mono">{d.from}</span>
+                <input className="mono" type="time" value={d.from} onChange={e => setTime(i, 'from', e.target.value)} style={inputStyle} />
               </div>
               <span className="muted" style={{ fontSize: 12 }}>až</span>
               <div className="field" style={{ padding: '6px 12px', fontSize: 13, minWidth: 90 }}>
-                <span className="mono">{d.to}</span>
+                <input className="mono" type="time" value={d.to} onChange={e => setTime(i, 'to', e.target.value)} style={inputStyle} />
               </div>
-              <Btn variant="ghost" size="sm" icon={I.Plus}>Pauza</Btn>
             </div>
           ) : (
             <div className="muted" style={{ fontSize: 13 }}>Zavřeno</div>
@@ -1142,23 +1529,60 @@ const SetHours = () => {
         </div>
       ))}
       <div className="row gap-2" style={{ marginTop: 18 }}>
-        <Btn size="sm" icon={I.Plus}>Přidat výjimku / svátek</Btn>
+        <Btn variant="accent" size="sm" onClick={save} disabled={saving}>{saving ? 'Ukládám…' : 'Uložit změny'}</Btn>
       </div>
     </div>
   );
 };
 
-const SetRules = () => {
-  const [rules, setRules] = useState([
-    { id: 'r1', t: 'Barvení pouze u Terezy',         x: 'Všechny barvicí služby Nikola nabízí jen v termínech Terezy.',                       on: true  },
-    { id: 'r2', t: 'Nepřijímat rezervace po 19:30',  x: 'Nikola odmítne termíny končící po 19:30, i kdyby bylo otevřeno déle.',               on: true  },
-    { id: 'r3', t: 'Přidat 15 min buffer po barvení',x: 'Automaticky přidá 15 minut úklidu za barvicí službou.',                              on: true  },
-    { id: 'r4', t: 'Nové klienty ověřit SMS',         x: 'Pošle rezervační SMS, kterou musí klient potvrdit do 1 hodiny.',                      on: false },
-    { id: 'r5', t: 'VIP preferují Terezu',            x: 'Pokud je volno, Nikola nabídne VIP klientům nejdřív Terezu.',                        on: true  },
-  ]);
+const SetRules = ({ user, companySettings, onSettingsSaved }) => {
+  const parseRules = (settings) => {
+    try { return JSON.parse(settings?.ai_notes ?? '[]'); } catch { return []; }
+  };
+  const [rules, setRules] = useState(() => parseRules(companySettings));
+  const [adding, setAdding] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { setRules(parseRules(companySettings)); }, [companySettings]);
+
+  const persist = async (next) => {
+    if (!user) return;
+    setSaving(true);
+    try {
+      const saved = await saveCompanySettings(user.id, { ...(companySettings ?? {}), ai_notes: JSON.stringify(next) });
+      onSettingsSaved?.(saved);
+    } catch (e) {
+      toast.error(e.message || 'Chyba při ukládání.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const toggle = useCallback((id) => {
-    setRules((prev) => prev.map((r) => r.id === id ? { ...r, on: !r.on } : r));
-  }, []);
+    setRules((prev) => {
+      const next = prev.map((r) => r.id === id ? { ...r, on: !r.on } : r);
+      persist(next);
+      return next;
+    });
+  }, [companySettings, user]);
+
+  const addRule = async () => {
+    if (!newTitle.trim()) return;
+    const next = [...rules, { id: Date.now().toString(), t: newTitle.trim(), x: newDesc.trim(), on: true }];
+    setRules(next);
+    await persist(next);
+    setNewTitle(''); setNewDesc(''); setAdding(false);
+  };
+
+  const removeRule = (id) => {
+    const next = rules.filter(r => r.id !== id);
+    setRules(next);
+    persist(next);
+  };
+
+  const inputStyle = { background: 'transparent', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink)', width: '100%' };
 
   return (
     <div className="card lg">
@@ -1172,17 +1596,39 @@ const SetRules = () => {
             Jednoduchá pravidla — když platí podmínka, Nikola se podle nich zařídí. Žádné programování.
           </div>
         </div>
-        <Btn variant="accent" icon={I.Plus} size="sm">Nové pravidlo</Btn>
+        <Btn variant="accent" icon={I.Plus} size="sm" onClick={() => setAdding(true)}>Nové pravidlo</Btn>
       </div>
+
+      {adding && (
+        <div className="card thin" style={{ marginTop: 16, padding: 16 }}>
+          <div className="col gap-2">
+            <div className="field" style={{ padding: '8px 12px' }}>
+              <input placeholder="Název pravidla…" value={newTitle} onChange={e => setNewTitle(e.target.value)} style={inputStyle} autoFocus />
+            </div>
+            <div className="field" style={{ padding: '8px 12px' }}>
+              <input placeholder="Popis (volitelný)…" value={newDesc} onChange={e => setNewDesc(e.target.value)} style={inputStyle} />
+            </div>
+            <div className="row gap-2">
+              <Btn variant="accent" size="sm" onClick={addRule} disabled={saving || !newTitle.trim()}>Přidat</Btn>
+              <Btn variant="ghost" size="sm" onClick={() => { setAdding(false); setNewTitle(''); setNewDesc(''); }}>Zrušit</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="col gap-2" style={{ marginTop: 24 }}>
+        {rules.length === 0 && !adding && (
+          <div className="muted" style={{ fontSize: 13, padding: '12px 0' }}>Zatím žádná pravidla. Klikněte + Nové pravidlo.</div>
+        )}
         {rules.map((r) => (
           <div key={r.id} className={cx('rule', r.on && 'on')}>
             <div className="rule-ic"><I.Sparkle s={14} /></div>
-            <div>
+            <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 500 }}>{r.t}</div>
-              <div className="muted" style={{ fontSize: 12.5, marginTop: 3, lineHeight: 1.55 }}>{r.x}</div>
+              {r.x && <div className="muted" style={{ fontSize: 12.5, marginTop: 3, lineHeight: 1.55 }}>{r.x}</div>}
             </div>
             <Switch on={r.on} onChange={() => toggle(r.id)} />
+            <Btn variant="ghost" size="sm" icon={I.X} onClick={() => removeRule(r.id)} />
           </div>
         ))}
       </div>
@@ -1192,12 +1638,12 @@ const SetRules = () => {
 
 const SetInteg = () => {
   const items = [
-    { id: 'gcal',  n: 'Google Calendar',   d: 'Synchronizace rezervací do vašeho kalendáře', i: I.Calendar,   on: true,  acc: 'svatopluk@salon.cz' },
-    { id: 'res',   n: 'Reservio',           d: 'Import stávajících rezervací a klientů',       i: I.Globe,      on: true,  acc: 'salon-svatopluk' },
-    { id: 'tw',    n: 'Twilio (telefonie)', d: 'Telefonní číslo +420 277 140 220',             i: I.Phone,      on: true,  acc: '+420 277 140 220' },
-    { id: 'pos',   n: 'Storyous POS',       d: 'Propojit platby a útratu klientů',             i: I.CreditCard, on: false },
-    { id: 'mch',   n: 'Mailchimp',          d: 'Klienti do e-mailových kampaní',               i: I.Mail,       on: false },
-    { id: 'slack', n: 'Slack',              d: 'Notifikace o důležitých hovorech',             i: I.Bell,       on: false },
+    { id: 'gcal',  n: 'Google Calendar',   d: 'Synchronizace rezervací do vašeho kalendáře', i: I.Calendar,   soon: true },
+    { id: 'res',   n: 'Reservio',           d: 'Import stávajících rezervací a klientů',       i: I.Globe,      soon: true },
+    { id: 'tw',    n: 'Twilio (telefonie)', d: 'Propojení telefonního čísla pro AI recepční',  i: I.Phone,      soon: true },
+    { id: 'pos',   n: 'Storyous POS',       d: 'Propojit platby a útratu klientů',             i: I.CreditCard, soon: true },
+    { id: 'mch',   n: 'Mailchimp',          d: 'Klienti do e-mailových kampaní',               i: I.Mail,       soon: true },
+    { id: 'slack', n: 'Slack',              d: 'Notifikace o důležitých hovorech',             i: I.Bell,       soon: true },
   ];
 
   return (
@@ -1216,12 +1662,9 @@ const SetInteg = () => {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ fontSize: 14, fontWeight: 500 }}>{it.n}</div>
-                    {it.on
-                      ? <Tag variant="live"><I.Check s={10} />Propojeno</Tag>
-                      : <Btn variant="ghost" size="sm">Připojit</Btn>}
+                    <Tag>Připravujeme</Tag>
                   </div>
                   <div className="muted" style={{ fontSize: 12.5, marginTop: 4, lineHeight: 1.5 }}>{it.d}</div>
-                  {it.acc && <div className="mono" style={{ fontSize: 11.5, marginTop: 8, color: 'var(--ink-3)' }}>{it.acc}</div>}
                 </div>
               </div>
             </div>
@@ -1232,75 +1675,62 @@ const SetInteg = () => {
   );
 };
 
-const SetBilling = () => (
-  <div className="col gap-4">
-    <div className="card lg" style={{ background: 'linear-gradient(135deg, var(--accent-soft), transparent 70%), var(--paper)', borderColor: 'var(--accent-ring)' }}>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
-        <div>
-          <div className="eyebrow">Váš plán</div>
-          <div className="h-display" style={{ marginTop: 10, fontSize: 38 }}>Professional</div>
-          <div className="muted" style={{ fontSize: 13.5, marginTop: 8 }}>Až 500 hovorů / měsíc · všechny funkce · prioritní podpora</div>
-        </div>
-        <div className="col gap-2" style={{ alignItems: 'flex-end' }}>
-          <div className="h-display" style={{ fontSize: 30 }}>2 490 Kč <span style={{ fontSize: 13, color: 'var(--ink-3)', fontWeight: 400 }}>/ měsíc</span></div>
-          <Btn variant="ghost" size="sm">Změnit plán</Btn>
-        </div>
-      </div>
-      <div style={{ height: 1, background: 'var(--line)', margin: '24px 0 20px' }} />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20 }}>
-        <div>
-          <div className="muted" style={{ fontSize: 12 }}>Hovory tento měsíc</div>
-          <div className="row" style={{ alignItems: 'baseline', gap: 8, marginTop: 6 }}>
-            <div className="h-display" style={{ fontSize: 26 }}>184</div>
-            <div className="muted" style={{ fontSize: 12 }}>/ 500</div>
-          </div>
-          <div style={{ height: 4, background: 'rgba(255,255,255,0.08)', borderRadius: 4, marginTop: 10, overflow: 'hidden' }}>
-            <div style={{ width: '36.8%', height: '100%', background: 'var(--accent)' }} />
-          </div>
-        </div>
-        <div>
-          <div className="muted" style={{ fontSize: 12 }}>Příští platba</div>
-          <div className="h-display" style={{ fontSize: 26, marginTop: 6 }}>12. 5. 2026</div>
-          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Visa •••• 4221</div>
-        </div>
-        <div>
-          <div className="muted" style={{ fontSize: 12 }}>Rezervací z Nikoly</div>
-          <div className="h-display" style={{ fontSize: 26, marginTop: 6 }}>142</div>
-          <div style={{ fontSize: 12, marginTop: 4, color: 'var(--live)' }}>+18 % oproti minulému měsíci</div>
-        </div>
-      </div>
-    </div>
+const SetBilling = () => {
+  const { user } = useAuth();
+  const callsCount = CALLS.length;
+  const bookingsCount = EVENTS.length;
+  const memberSince = user?.created_at ? new Date(user.created_at).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'long', year: 'numeric' }) : '—';
 
-    <div className="card lg">
-      <div className="h-section" style={{ fontSize: 18, marginBottom: 14 }}>Faktury</div>
-      <div className="svc-table" style={{ border: 0, background: 'transparent' }}>
-        <table>
-          <thead>
-            <tr><th>Datum</th><th>Popis</th><th>Částka</th><th /></tr>
-          </thead>
-          <tbody>
-            {[
-              { d: '12. 4. 2026', n: 'Professional · duben',  v: '2 490 Kč' },
-              { d: '12. 3. 2026', n: 'Professional · březen', v: '2 490 Kč' },
-              { d: '12. 2. 2026', n: 'Professional · únor',   v: '2 490 Kč' },
-              { d: '12. 1. 2026', n: 'Starter · leden',       v: '890 Kč'   },
-            ].map((r, i) => (
-              <tr key={i}>
-                <td className="muted">{r.d}</td>
-                <td>{r.n}</td>
-                <td className="num" style={{ fontWeight: 500 }}>{r.v}</td>
-                <td style={{ textAlign: 'right' }}><Btn variant="ghost" size="sm" icon={I.Download}>PDF</Btn></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+  return (
+    <div className="col gap-4">
+      <div className="card lg" style={{ background: 'linear-gradient(135deg, var(--accent-soft), transparent 70%), var(--paper)', borderColor: 'var(--accent-ring)' }}>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
+          <div>
+            <div className="eyebrow">Váš plán</div>
+            <div className="h-display" style={{ marginTop: 10, fontSize: 38 }}>Zkušební verze</div>
+            <div className="muted" style={{ fontSize: 13.5, marginTop: 8 }}>Plné funkce · bez omezení · platba bude dostupná brzy</div>
+          </div>
+          <div className="col gap-2" style={{ alignItems: 'flex-end' }}>
+            <Tag variant="live"><I.Check s={10} />Aktivní</Tag>
+          </div>
+        </div>
+        <div style={{ height: 1, background: 'var(--line)', margin: '24px 0 20px' }} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20 }}>
+          <div>
+            <div className="muted" style={{ fontSize: 12 }}>Hovory celkem</div>
+            <div className="h-display" style={{ fontSize: 26, marginTop: 6 }}>{callsCount}</div>
+          </div>
+          <div>
+            <div className="muted" style={{ fontSize: 12 }}>Rezervace celkem</div>
+            <div className="h-display" style={{ fontSize: 26, marginTop: 6 }}>{bookingsCount}</div>
+          </div>
+          <div>
+            <div className="muted" style={{ fontSize: 12 }}>Zákazník od</div>
+            <div style={{ fontSize: 14, fontWeight: 500, marginTop: 6 }}>{memberSince}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card lg">
+        <div className="h-section" style={{ fontSize: 18, marginBottom: 8 }}>Fakturace</div>
+        <div className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
+          Platební brána bude dostupná v příští verzi. Faktury a správa předplatného přes Stripe portál.
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 const SettingsView = () => {
+  const { user } = useAuth();
   const [tab, setTab] = useState('ai');
+  const [companySettings, setCompanySettings] = useState(null);
+
+  useEffect(() => {
+    if (!user) return;
+    getCompanySettings(user.id).then(s => setCompanySettings(s)).catch(() => {});
+  }, [user]);
+
   const tabs = [
     { id: 'ai',           label: 'AI recepční',    icon: I.Brain      },
     { id: 'hours',        label: 'Otevírací doba', icon: I.Clock      },
@@ -1322,9 +1752,9 @@ const SettingsView = () => {
         })}
       </nav>
       <div>
-        {tab === 'ai'           && <SetAI />}
-        {tab === 'hours'        && <SetHours />}
-        {tab === 'rules'        && <SetRules />}
+        {tab === 'ai'           && <SetAI user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
+        {tab === 'hours'        && <SetHours user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
+        {tab === 'rules'        && <SetRules user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
         {tab === 'integrations' && <SetInteg />}
         {tab === 'billing'      && <SetBilling />}
       </div>
@@ -1471,13 +1901,13 @@ export default function Dashboard() {
   }, []);
 
   const refreshBookings = useCallback(async () => {
-    const week = getCurrentWeek();
-    const weekEnd = new Date(week.weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 7);
     const rows = await fetchBookings();
-    EVENTS = rows
-      .filter(r => { const s = new Date(r.starts_at); return s >= week.weekStart && s < weekEnd; })
-      .map(mapBookingToEvent);
+    EVENTS = rows.map(mapBookingToEvent);
+    setDataVersion(v => v + 1);
+  }, []);
+
+  const refreshCalls = useCallback(async () => {
+    CALLS = (await fetchCalls()).map(mapCallRow);
     setDataVersion(v => v + 1);
   }, []);
 
@@ -1499,11 +1929,11 @@ export default function Dashboard() {
         <div className="col-main">
           <Dock title={m.title} crumb={m.crumb} right={right} aiOn={aiOn} />
           <div className="view">
-            {nav === 'today'    && <TodayView />}
+            {nav === 'today'    && <TodayView setNav={setNav} setCallSel={setCallSel} />}
             {nav === 'inbox'    && <InboxView selId={callSel} setSelId={setCallSel} onBookingCreated={refreshBookings} />}
-            {nav === 'calendar' && <CalendarView aiOn={aiOn} />}
-            {nav === 'clients'  && <ClientsView />}
-            {nav === 'services' && <ServicesView />}
+            {nav === 'calendar' && <CalendarView onRefresh={refreshBookings} />}
+            {nav === 'clients'  && <ClientsView onRefresh={refreshCustomers} onNavigate={setNav} />}
+            {nav === 'services' && <ServicesView onRefresh={refreshServices} />}
             {nav === 'settings' && <SettingsView />}
           </div>
         </div>
