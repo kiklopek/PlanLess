@@ -219,11 +219,12 @@ const Switch = ({ on, onChange }) => (
    Nav config
    ============================================================ */
 const NAV = [
-  { id: 'today',    label: 'Dnes',     icon: I.Today },
-  { id: 'inbox',    label: 'Hovory',   icon: I.Inbox, badge: true },
-  { id: 'calendar', label: 'Kalendář', icon: I.Calendar },
-  { id: 'clients',  label: 'Klienti',  icon: I.Users },
-  { id: 'services', label: 'Služby',   icon: I.Scissors },
+  { id: 'today',     label: 'Dnes',      icon: I.Today },
+  { id: 'inbox',     label: 'Hovory',    icon: I.Inbox, badge: true },
+  { id: 'calendar',  label: 'Kalendář',  icon: I.Calendar },
+  { id: 'clients',   label: 'Klienti',   icon: I.Users },
+  { id: 'services',  label: 'Služby',    icon: I.Scissors },
+  { id: 'analytics', label: 'Statistiky', icon: I.BarChart },
 ];
 
 /* ============================================================
@@ -2464,6 +2465,159 @@ const SetStaff = ({ user }) => {
   );
 };
 
+/* ============================================================
+   Analytics View
+   ============================================================ */
+const AnalyticsView = () => {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay() + 1); weekStart.setHours(0,0,0,0);
+
+  const monthEvents = EVENTS.filter(e => new Date(e.starts_at) >= monthStart);
+  const weekEvents  = EVENTS.filter(e => new Date(e.starts_at) >= weekStart);
+  const monthCalls  = CALLS.filter(c => c.created_at && new Date(c.created_at) >= monthStart);
+
+  const revenue = monthEvents.reduce((sum, e) => {
+    const svc = SERVICES.find(s => s.id === e.service_id);
+    return sum + (svc?.p ?? 0);
+  }, 0);
+  const weekRevenue = weekEvents.reduce((sum, e) => {
+    const svc = SERVICES.find(s => s.id === e.service_id);
+    return sum + (svc?.p ?? 0);
+  }, 0);
+
+  const booked = monthCalls.filter(c => c.status === 'booked').length;
+  const convRate = monthCalls.length > 0 ? Math.round((booked / monthCalls.length) * 100) : 0;
+
+  // 14-day bar chart data
+  const days14 = Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(now); d.setDate(now.getDate() - 13 + i); d.setHours(0,0,0,0);
+    const next = new Date(d); next.setDate(d.getDate() + 1);
+    const count = EVENTS.filter(e => { const s = new Date(e.starts_at); return s >= d && s < next; }).length;
+    return { date: d, count, label: d.toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' }) };
+  });
+  const maxCount = Math.max(...days14.map(d => d.count), 1);
+
+  // Top services
+  const svcCounts = SERVICES.map(s => ({
+    ...s,
+    bookings: EVENTS.filter(e => e.service_id === s.id).length,
+    monthRev: EVENTS.filter(e => e.service_id === s.id && new Date(e.starts_at) >= monthStart).reduce((sum) => sum + (s.p ?? 0), 0),
+  })).filter(s => s.bookings > 0).sort((a, b) => b.bookings - a.bookings).slice(0, 5);
+
+  // CSV export
+  const exportCsv = () => {
+    const rows = [
+      ['Termín', 'Zákazník', 'Služba', 'Cena'],
+      ...EVENTS.map(e => {
+        const svc = SERVICES.find(s => s.id === e.service_id);
+        return [
+          new Date(e.starts_at).toLocaleString('cs-CZ'),
+          e.who || '—',
+          svc?.name || e.service_name || '—',
+          svc?.p ?? '',
+        ];
+      }),
+    ];
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = `planless-rezervace-${now.toISOString().slice(0,10)}.csv`;
+    a.click();
+  };
+
+  const StatCard = ({ label, value, sub, color }) => (
+    <div className="card" style={{ flex: 1, minWidth: 160 }}>
+      <div className="eyebrow">{label}</div>
+      <div style={{ fontSize: 28, fontWeight: 700, color: color ?? 'var(--ink)', margin: '8px 0 4px', letterSpacing: -1 }}>{value}</div>
+      {sub && <div className="muted" style={{ fontSize: 12.5 }}>{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div className="col gap-4" style={{ padding: '8px 0' }}>
+      <div className="row gap-3" style={{ flexWrap: 'wrap', alignItems: 'stretch' }}>
+        <StatCard label="Tržby tento měsíc" value={`${revenue.toLocaleString('cs-CZ')} Kč`} sub={`Tento týden: ${weekRevenue.toLocaleString('cs-CZ')} Kč`} color="var(--accent)" />
+        <StatCard label="Rezervace tento měsíc" value={monthEvents.length} sub={`Tento týden: ${weekEvents.length}`} />
+        <StatCard label="Hovory tento měsíc" value={monthCalls.length} sub={`Zmeškaných: ${monthCalls.filter(c => c.status === 'missed').length}`} />
+        <StatCard label="Konverzní poměr" value={`${convRate} %`} sub={`${booked} z ${monthCalls.length} hovorů vedlo k rezervaci`} />
+      </div>
+
+      <div className="card lg">
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div>
+            <div className="eyebrow">Rezervace — posledních 14 dní</div>
+          </div>
+          <Btn variant="ghost" size="sm" icon={I.Download} onClick={exportCsv}>Exportovat CSV</Btn>
+        </div>
+        <svg viewBox={`0 0 ${14 * 40 - 4} 80`} style={{ width: '100%', height: 80, overflow: 'visible' }}>
+          {days14.map((d, i) => {
+            const barH = maxCount > 0 ? Math.max(4, Math.round((d.count / maxCount) * 72)) : 4;
+            const isToday = d.date.toDateString() === now.toDateString();
+            return (
+              <g key={i}>
+                <rect
+                  x={i * 40}
+                  y={80 - barH}
+                  width={36}
+                  height={barH}
+                  rx={6}
+                  fill={isToday ? 'var(--accent)' : d.count > 0 ? 'var(--ink-3)' : 'var(--paper-2)'}
+                  style={{ transition: 'all 0.2s' }}
+                />
+                {d.count > 0 && (
+                  <text x={i * 40 + 18} y={80 - barH - 5} textAnchor="middle" fontSize={10} fill="var(--ink-2)">{d.count}</text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(14, 1fr)`, marginTop: 6 }}>
+          {days14.map((d, i) => (
+            <div key={i} style={{ fontSize: 10, color: d.date.toDateString() === now.toDateString() ? 'var(--accent)' : 'var(--ink-3)', textAlign: 'center' }}>
+              {d.label}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {svcCounts.length > 0 && (
+        <div className="card lg">
+          <div className="eyebrow" style={{ marginBottom: 16 }}>Top služby</div>
+          <div className="col gap-2">
+            {svcCounts.map((s, i) => (
+              <div key={s.id} className="row gap-3" style={{ alignItems: 'center', padding: '10px 0', borderBottom: i < svcCounts.length - 1 ? '1px solid var(--line)' : 'none' }}>
+                <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--paper-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: 'var(--ink-3)', flexShrink: 0 }}>{i + 1}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>{s.name}</div>
+                  <div className="muted" style={{ fontSize: 12 }}>{s.d} min{s.p ? ` · ${s.p.toLocaleString('cs-CZ')} Kč` : ''}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{s.bookings}×</div>
+                  {s.monthRev > 0 && <div className="muted" style={{ fontSize: 12 }}>{s.monthRev.toLocaleString('cs-CZ')} Kč/měs</div>}
+                </div>
+                <div style={{ width: 80 }}>
+                  <div style={{ height: 6, borderRadius: 3, background: 'var(--paper-2)', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', borderRadius: 3, background: 'var(--accent)', width: `${Math.round((s.bookings / svcCounts[0].bookings) * 100)}%`, transition: 'width 0.4s' }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {monthCalls.length === 0 && monthEvents.length === 0 && (
+        <div className="card lg" style={{ textAlign: 'center', padding: '48px 0' }}>
+          <I.BarChart s={32} style={{ color: 'var(--ink-3)', marginBottom: 12 }} />
+          <div style={{ color: 'var(--ink-2)', fontSize: 15 }}>Zatím žádná data pro tento měsíc.</div>
+          <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>Statistiky se zobrazí po prvních rezervacích a hovorech.</div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const SettingsView = () => {
   const { user } = useAuth();
   const [tab, setTab] = useState('company');
@@ -2652,7 +2806,7 @@ function getViewMeta(nav) {
     services: `${SERVICES.length} služeb · katalog a ceny`,
     settings: 'Konfigurace AI, provozu a integrací',
   };
-  const titles = { today: 'Dnes', inbox: 'Hovory', calendar: 'Kalendář', clients: 'Klienti', services: 'Služby', settings: 'Nastavení' };
+  const titles = { today: 'Dnes', inbox: 'Hovory', calendar: 'Kalendář', clients: 'Klienti', services: 'Služby', analytics: 'Statistiky', settings: 'Nastavení' };
   return { title: titles[nav] ?? nav, crumb: crumbs[nav] ?? '' };
 }
 
@@ -2815,11 +2969,12 @@ export default function Dashboard() {
           <Dock title={m.title} crumb={m.crumb} right={right} aiOn={aiOn} onToggleAi={toggleAi} />
           <div className="view">
             {loading ? <LoadingView /> : <>
-              {nav === 'today'    && <TodayView setNav={setNav} setCallSel={setCallSel} onRefresh={refreshBookings} />}
-              {nav === 'inbox'    && <InboxView selId={callSel} setSelId={setCallSel} onBookingCreated={refreshBookings} onNavCalendar={() => setNav('calendar')} dataVersion={dataVersion} />}
-              {nav === 'calendar' && <CalendarView onRefresh={refreshBookings} prefillClient={calPrefill} onPrefillUsed={() => setCalPrefill(null)} />}
-              {nav === 'clients'  && <ClientsView onRefresh={refreshCustomers} onNavigate={(view, prefill) => { if (prefill) setCalPrefill(prefill); setNav(view); }} />}
-              {nav === 'services' && <ServicesView onRefresh={refreshServices} />}
+              {nav === 'today'     && <TodayView setNav={setNav} setCallSel={setCallSel} onRefresh={refreshBookings} />}
+              {nav === 'inbox'     && <InboxView selId={callSel} setSelId={setCallSel} onBookingCreated={refreshBookings} onNavCalendar={() => setNav('calendar')} dataVersion={dataVersion} />}
+              {nav === 'calendar'  && <CalendarView onRefresh={refreshBookings} prefillClient={calPrefill} onPrefillUsed={() => setCalPrefill(null)} />}
+              {nav === 'clients'   && <ClientsView onRefresh={refreshCustomers} onNavigate={(view, prefill) => { if (prefill) setCalPrefill(prefill); setNav(view); }} />}
+              {nav === 'services'  && <ServicesView onRefresh={refreshServices} />}
+              {nav === 'analytics' && <AnalyticsView />}
               {nav === 'settings' && <SettingsView />}
             </>}
           </div>
