@@ -1996,11 +1996,54 @@ const SetInteg = ({ user, companySettings, onSettingsSaved }) => {
   );
 };
 
+const PLAN_FEATURES = [
+  'Neomezené rezervace a klienti',
+  'AI recepční Nikola (telefonní hovory)',
+  'SMS potvrzení a připomínky',
+  'Google Calendar synchronizace',
+  'Správa zaměstnanců',
+  'Statistiky a CSV export',
+];
+
 const SetBilling = () => {
-  const { user } = useAuth();
+  const { user, isSubscribed, stripeCustomerId, refreshProfile } = useAuth();
+  const [billing, setBilling] = useState('monthly');
+  const [loading, setLoading] = useState(false);
+  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? '';
+
   const callsCount = CALLS.length;
   const bookingsCount = EVENTS.length;
   const memberSince = user?.created_at ? new Date(user.created_at).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'long', year: 'numeric' }) : '—';
+
+  // Check for payment success in URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('payment') === 'success') {
+      toast.success('Platba proběhla úspěšně! Váš účet je nyní aktivní.');
+      refreshProfile?.(user?.id);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
+  const startCheckout = async () => {
+    if (!user || !SUPABASE_URL) return;
+    setLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/create-checkout-session`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session?.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ billing }),
+      });
+      const { url, error } = await resp.json();
+      if (error) throw new Error(error);
+      window.location.href = url;
+    } catch (e) {
+      toast.error(e.message || 'Nepodařilo se otevřít platební bránu.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="col gap-4">
@@ -2008,11 +2051,15 @@ const SetBilling = () => {
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
           <div>
             <div className="eyebrow">Váš plán</div>
-            <div className="h-display" style={{ marginTop: 10, fontSize: 38 }}>Zkušební verze</div>
-            <div className="muted" style={{ fontSize: 13.5, marginTop: 8 }}>Plné funkce · bez omezení · platba bude dostupná brzy</div>
+            <div className="h-display" style={{ marginTop: 10, fontSize: 38 }}>
+              {isSubscribed ? 'Pro' : 'Zkušební verze'}
+            </div>
+            <div className="muted" style={{ fontSize: 13.5, marginTop: 8 }}>
+              {isSubscribed ? 'Plný přístup ke všem funkcím.' : 'Plné funkce · zdarma během testování'}
+            </div>
           </div>
           <div className="col gap-2" style={{ alignItems: 'flex-end' }}>
-            <Tag variant="live"><I.Check s={10} />Aktivní</Tag>
+            <Tag variant={isSubscribed ? 'live' : 'warn'}><I.Check s={10} />{isSubscribed ? 'Aktivní předplatné' : 'Zkušební verze'}</Tag>
           </div>
         </div>
         <div style={{ height: 1, background: 'var(--line)', margin: '24px 0 20px' }} />
@@ -2032,12 +2079,44 @@ const SetBilling = () => {
         </div>
       </div>
 
-      <div className="card lg">
-        <div className="h-section" style={{ fontSize: 18, marginBottom: 8 }}>Fakturace</div>
-        <div className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
-          Platební brána bude dostupná v příští verzi. Faktury a správa předplatného přes Stripe portál.
+      {!isSubscribed && (
+        <div className="card lg">
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <div className="h-section" style={{ fontSize: 18, marginBottom: 4 }}>Aktivovat předplatné</div>
+              <div className="muted" style={{ fontSize: 13 }}>Plný přístup ke všem funkcím PlanLess</div>
+            </div>
+            <Seg items={[{ v: 'monthly', l: 'Měsíčně' }, { v: 'yearly', l: 'Ročně −20 %' }]} value={billing} onChange={setBilling} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 20 }}>
+            {PLAN_FEATURES.map(f => (
+              <div key={f} className="row gap-2" style={{ fontSize: 13.5, color: 'var(--ink-2)', alignItems: 'center' }}>
+                <I.Check s={14} style={{ color: 'var(--accent)', flexShrink: 0 }} /> {f}
+              </div>
+            ))}
+          </div>
+
+          <div className="row gap-3" style={{ alignItems: 'center' }}>
+            <Btn variant="accent" onClick={startCheckout} disabled={loading}>
+              {loading ? 'Přesměrovávám…' : billing === 'yearly' ? 'Aktivovat za 990 Kč/rok' : 'Aktivovat za 99 Kč/měsíc'}
+            </Btn>
+            <div className="muted" style={{ fontSize: 12 }}>14 dní zdarma · zrušení kdykoliv · platba kartou přes Stripe</div>
+          </div>
         </div>
-      </div>
+      )}
+
+      {isSubscribed && stripeCustomerId && (
+        <div className="card lg">
+          <div className="h-section" style={{ fontSize: 18, marginBottom: 8 }}>Správa předplatného</div>
+          <div className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 16 }}>
+            Faktury, změna platební metody nebo zrušení předplatného přes Stripe portál.
+          </div>
+          <Btn variant="ghost" size="sm" icon={I.ArrowR} onClick={() => window.open('https://billing.stripe.com/p/login', '_blank')}>
+            Otevřít Stripe portál
+          </Btn>
+        </div>
+      )}
     </div>
   );
 };
