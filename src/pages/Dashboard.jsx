@@ -1979,10 +1979,17 @@ const SetInteg = ({ user, companySettings, onSettingsSaved }) => {
   const [savingTwilio, setSavingTwilio] = useState(false);
   const [gcalConnected, setGcalConnected] = useState(!!(companySettings?.gcal_access_token));
   const [syncingGcal, setSyncingGcal] = useState(false);
+  const [bookingSlug, setBookingSlug] = useState(companySettings?.booking_slug ?? '');
+  const [bookingTitle, setBookingTitle] = useState(companySettings?.booking_page_title ?? '');
+  const [bookingEnabled, setBookingEnabled] = useState(companySettings?.booking_page_enabled !== false);
+  const [savingBooking, setSavingBooking] = useState(false);
 
   useEffect(() => {
     setTwilioPhone(companySettings?.twilio_phone_number ?? '');
     setGcalConnected(!!(companySettings?.gcal_access_token));
+    setBookingSlug(companySettings?.booking_slug ?? '');
+    setBookingTitle(companySettings?.booking_page_title ?? '');
+    setBookingEnabled(companySettings?.booking_page_enabled !== false);
   }, [companySettings]);
 
   const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? '';
@@ -2026,6 +2033,27 @@ const SetInteg = ({ user, companySettings, onSettingsSaved }) => {
       toast.error(e.message || 'Chyba při synchronizaci.');
     } finally {
       setSyncingGcal(false);
+    }
+  }
+
+  async function saveBookingPage() {
+    if (!user) return;
+    const slug = bookingSlug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    if (!slug) { toast.error('Zadejte URL slug pro stránku.'); return; }
+    setSavingBooking(true);
+    try {
+      const updated = await saveCompanySettings(user.id, {
+        booking_slug: slug,
+        booking_page_title: bookingTitle.trim() || null,
+        booking_page_enabled: bookingEnabled,
+      });
+      setBookingSlug(slug);
+      if (onSettingsSaved) onSettingsSaved(updated);
+      toast.success('Booking stránka uložena.');
+    } catch (e) {
+      toast.error(e.message || 'Chyba při ukládání.');
+    } finally {
+      setSavingBooking(false);
     }
   }
 
@@ -2127,6 +2155,70 @@ const SetInteg = ({ user, companySettings, onSettingsSaved }) => {
                 toast.success('Google Kalendář odpojen.');
               }}>Odpojit</Btn>
             </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Veřejná booking stránka ─────────────────────────────── */}
+      <div className="card lg">
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+          <div>
+            <div className="eyebrow">Online rezervace</div>
+            <div className="h-section" style={{ fontSize: 20, marginTop: 6 }}>Veřejná booking stránka</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Switch
+              checked={bookingEnabled}
+              onChange={v => setBookingEnabled(v)}
+            />
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.04)', color: 'var(--ink-2)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+              <I.Globe s={18} />
+            </div>
+          </div>
+        </div>
+        <div className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 20 }}>
+          Zákazníci si mohou sami rezervovat termín přes veřejnou stránku — bez nutnosti volat.
+        </div>
+
+        <div className="col gap-3">
+          <div>
+            <div className="lbl" style={{ marginBottom: 6 }}>Název stránky <span className="muted">(volitelný)</span></div>
+            <input
+              style={inputSt}
+              value={bookingTitle}
+              onChange={e => setBookingTitle(e.target.value)}
+              placeholder={companySettings?.company_name || 'Rezervujte si termín'}
+            />
+          </div>
+          <div>
+            <div className="lbl" style={{ marginBottom: 6 }}>URL slug <span className="muted">(unikátní identifikátor)</span></div>
+            <div className="row gap-2">
+              <div className="field row" style={{ flex: 1, padding: '7px 10px', gap: 0 }}>
+                <span className="muted" style={{ fontSize: 12, flexShrink: 0 }}>/book/</span>
+                <input
+                  style={{ ...inputSt, border: 'none', background: 'transparent', padding: 0, flex: 1 }}
+                  value={bookingSlug}
+                  onChange={e => setBookingSlug(e.target.value)}
+                  placeholder="muj-salon"
+                />
+              </div>
+              <Btn variant="accent" size="sm" onClick={saveBookingPage} disabled={savingBooking}>
+                {savingBooking ? 'Ukládám…' : 'Uložit'}
+              </Btn>
+            </div>
+          </div>
+
+          {bookingSlug && (
+            <div>
+              <div className="lbl" style={{ marginBottom: 6 }}>Odkaz pro zákazníky</div>
+              <div className="field row gap-2" style={{ padding: '8px 12px', alignItems: 'center' }}>
+                <span className="mono muted" style={{ fontSize: 12, flex: 1, wordBreak: 'break-all' }}>
+                  {window.location.origin}/book/{bookingSlug}
+                </span>
+                <Btn variant="ghost" size="sm" icon={I.Copy} onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/book/${bookingSlug}`); toast.success('Zkopírováno'); }} />
+                <Btn variant="ghost" size="sm" icon={I.Globe} onClick={() => window.open(`/book/${bookingSlug}`, '_blank')} />
+              </div>
+            </div>
           )}
         </div>
       </div>

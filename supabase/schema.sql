@@ -262,3 +262,17 @@ CREATE INDEX IF NOT EXISTS bookings_reminder_idx ON public.bookings(starts_at) W
 
 -- Phase 6: Staff notes/specialization
 ALTER TABLE public.staff ADD COLUMN IF NOT EXISTS notes text;
+
+-- Phase 7: Public booking page
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS booking_slug text UNIQUE;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS booking_page_enabled boolean DEFAULT true;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS booking_page_title text;
+CREATE UNIQUE INDEX IF NOT EXISTS company_settings_booking_slug_idx ON public.company_settings(booking_slug) WHERE booking_slug IS NOT NULL;
+
+-- Allow anonymous reads for public booking page
+CREATE POLICY IF NOT EXISTS "company_settings_public_read" ON public.company_settings
+  FOR SELECT USING (booking_slug IS NOT NULL AND booking_page_enabled = true);
+CREATE POLICY IF NOT EXISTS "services_public_read" ON public.services
+  FOR SELECT USING (true);
+CREATE POLICY IF NOT EXISTS "bookings_public_insert" ON public.bookings
+  FOR INSERT WITH CHECK (true);

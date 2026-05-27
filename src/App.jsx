@@ -11,6 +11,7 @@ const ResetPassword = lazy(() => import('./pages/ResetPassword.jsx'))
 const Onboarding    = lazy(() => import('./pages/Onboarding.jsx'))
 const Dashboard     = lazy(() => import('./pages/Dashboard.jsx'))
 const Payment       = lazy(() => import('./pages/Payment.jsx'))
+const BookingPage   = lazy(() => import('./pages/BookingPage.jsx'))
 
 function App() {
   return (
@@ -37,6 +38,7 @@ function App() {
             <Route path="/onboarding" element={<Onboarding />} />
             <Route path="/payment"    element={<Payment />} />
             <Route path="/app"        element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/book/:slug" element={<BookingPage />} />
             <Route path="*"           element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
