@@ -684,7 +684,10 @@ export default function Onboarding() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) await saveCompanySettings(user.id, { onboarding_completed: true });
-    } catch { /* ignore */ }
+    } catch (err) {
+      // If save fails, mark skip in localStorage so ProtectedRoute lets them through
+      try { localStorage.setItem('pl:onboarding_skipped', '1'); } catch { /* ignore */ }
+    }
     navigate('/app');
   }
 

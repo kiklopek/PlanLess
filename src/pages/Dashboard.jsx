@@ -3,10 +3,10 @@ import { Icons as I, Wave } from '../components/Icons.jsx';
 import '../styles/globals.css';
 import './Dashboard.css';
 import { useAuth } from '../contexts/AuthContext.jsx';
-import { fetchCalls, updateCallStatus } from '../lib/callsDb.js';
+import { fetchCalls, updateCallStatus, clearCachedCalls } from '../lib/callsDb.js';
 import { fetchCustomers, upsertCustomer, deleteCustomerByPhone } from '../lib/customersDb.js';
 import { fetchServices, createService, updateService, deleteService } from '../lib/servicesDb.js';
-import { fetchBookings, createBooking, deleteBooking } from '../lib/bookingsDb.js';
+import { fetchBookings, createBooking, deleteBooking, clearCachedBookings } from '../lib/bookingsDb.js';
 import { createFollowup } from '../lib/followupsDb.js';
 import { getCompanySettings, saveCompanySettings } from '../lib/companySettings.js';
 import { supabase } from '../lib/supabase.js';
@@ -2229,6 +2229,33 @@ export default function Dashboard() {
       fetchServices().then(rows => { SERVICES = rows.map(mapServiceRow); }),
       fetchBookings().then(rows => { EVENTS = rows.map(mapBookingToEvent); }),
     ]).then(() => { setLoading(false); setDataVersion(v => v + 1); });
+  }, [user]);
+
+  // Realtime: auto-refresh when Nikola creates calls or bookings
+  useEffect(() => {
+    if (!user) return;
+    const prevMissed = { count: CALLS.filter(c => c.status === 'missed').length };
+
+    const channel = supabase.channel(`dashboard:${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls',    filter: `user_id=eq.${user.id}` }, async () => {
+        clearCachedCalls();
+        CALLS = (await fetchCalls()).map(mapCallRow);
+        const newMissed = CALLS.filter(c => c.status === 'missed').length;
+        if (newMissed > prevMissed.count) {
+          const latest = CALLS.find(c => c.status === 'missed');
+          if (latest) toast(`📞 Zmeškaný hovor — ${latest.who}`, { duration: 6000 });
+        }
+        prevMissed.count = newMissed;
+        setDataVersion(v => v + 1);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings', filter: `user_id=eq.${user.id}` }, async () => {
+        clearCachedBookings();
+        EVENTS = (await fetchBookings()).map(mapBookingToEvent);
+        setDataVersion(v => v + 1);
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, [user]);
 
   useEffect(() => {

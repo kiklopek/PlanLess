@@ -29,9 +29,13 @@ function upsertBookingCache(row) {
 export async function fetchBookings({ from, to } = {}) {
   if (!from && !to && cacheIsFresh()) return cachedBookings.data
 
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
   let query = supabase
     .from('bookings')
     .select('*')
+    .eq('user_id', user.id)
     .order('starts_at', { ascending: true })
 
   if (from) query = query.gte('starts_at', from)

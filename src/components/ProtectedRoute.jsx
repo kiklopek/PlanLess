@@ -20,9 +20,11 @@ export default function ProtectedRoute({ children }) {
 
     const devSkip = import.meta.env.VITE_DEV_SKIP_PAYMENT === 'true'
 
+    const localSkip = (() => { try { return localStorage.getItem('pl:onboarding_skipped') === '1'; } catch { return false; } })();
+
     getCompanySettings(user.id)
       .then(async settings => {
-        if (!settings || !settings.onboarding_completed) {
+        if (!localSkip && (!settings || !settings.onboarding_completed)) {
           setDestination('/onboarding')
         } else if (!devSkip) {
           const { data } = await supabase.from('profiles').select('is_subscribed').eq('id', user.id).maybeSingle()

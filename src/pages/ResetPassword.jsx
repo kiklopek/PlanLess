@@ -26,16 +26,11 @@ export default function ResetPassword() {
   const [done, setDone] = useState(false);
 
   useEffect(() => {
-    // Supabase embeds the recovery token in the URL hash.
-    // onAuthStateChange fires PASSWORD_RECOVERY once the session is set.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') setReady(true);
+    // Supabase fires PASSWORD_RECOVERY once the recovery token is validated
+    // and a session is established — only then is updateUser safe to call.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY' && session) setReady(true);
     });
-
-    // Also handle the case where the user arrives with a hash directly
-    const hash = window.location.hash;
-    if (hash.includes('type=recovery')) setReady(true);
-
     return () => subscription.unsubscribe();
   }, []);
 
