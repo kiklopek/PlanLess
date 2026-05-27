@@ -36,6 +36,11 @@ export const DEFAULT_COMPANY_SETTINGS = {
   escalation_phone: null,
   escalation_email: null,
   onboarding_completed: false,
+  twilio_phone_number: null,
+  gcal_access_token: null,
+  gcal_refresh_token: null,
+  gcal_token_expiry: null,
+  ai_greeting: null,
 }
 
 export async function getCompanySettings(userId) {

@@ -206,3 +206,18 @@ ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS ai_voice text DEFAU
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS ai_tone text DEFAULT 'warm';
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS ai_auto_book boolean DEFAULT true;
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS ai_confirm_sms boolean DEFAULT true;
+
+-- Phase 12: Stripe, Twilio, Google Calendar
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS stripe_customer_id text;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS twilio_phone_number text;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS twilio_account_sid text;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS twilio_auth_token text;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS ai_greeting text;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS gcal_access_token text;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS gcal_refresh_token text;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS gcal_token_expiry timestamptz;
+ALTER TABLE public.calls ADD COLUMN IF NOT EXISTS twilio_call_sid text;
+ALTER TABLE public.calls ADD COLUMN IF NOT EXISTS conversation_state jsonb;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS gcal_event_id text;
+CREATE INDEX IF NOT EXISTS calls_twilio_sid_idx ON public.calls(twilio_call_sid) WHERE twilio_call_sid IS NOT NULL;
+CREATE INDEX IF NOT EXISTS company_settings_twilio_phone_idx ON public.company_settings(twilio_phone_number) WHERE twilio_phone_number IS NOT NULL;

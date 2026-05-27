@@ -79,6 +79,7 @@ function mapCallRow(r) {
     tags: [r.status].filter(Boolean),
     vip: false,
     created_at: r.created_at,
+    recording_url: r.recording_url || null,
     outcome: {
       kind: r.status,
       label: r.status === 'booked' ? 'Rezervace vytvořena' : r.status === 'missed' ? 'Zmeškaný hovor' : 'Dotaz zákazníka',
@@ -647,6 +648,28 @@ const CallDetail = ({ call, onBookingCreated, onNavCalendar }) => {
                     <Wave size={11} /> rezervuji…
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {call.recording_url && (
+          <div style={{ marginBottom: 28 }}>
+            <div className="eyebrow" style={{ marginBottom: 14 }}>Nahrávka hovoru</div>
+            <div className="card thin" style={{ padding: '14px 16px' }}>
+              <audio
+                controls
+                src={call.recording_url}
+                style={{ width: '100%', height: 36, accentColor: 'var(--accent)' }}
+              />
+              <div style={{ marginTop: 10 }}>
+                <a
+                  href={call.recording_url}
+                  download
+                  style={{ fontSize: 12.5, color: 'var(--ink-3)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  <I.Download s={13} /> Stáhnout nahrávku
+                </a>
               </div>
             </div>
           </div>
@@ -1665,40 +1688,188 @@ const SetRules = ({ user, companySettings, onSettingsSaved }) => {
   );
 };
 
-const SetInteg = () => {
-  const items = [
-    { id: 'gcal',  n: 'Google Calendar',   d: 'Synchronizace rezervací do vašeho kalendáře', i: I.Calendar,   soon: true },
-    { id: 'res',   n: 'Reservio',           d: 'Import stávajících rezervací a klientů',       i: I.Globe,      soon: true },
-    { id: 'tw',    n: 'Twilio (telefonie)', d: 'Propojení telefonního čísla pro AI recepční',  i: I.Phone,      soon: true },
-    { id: 'pos',   n: 'Storyous POS',       d: 'Propojit platby a útratu klientů',             i: I.CreditCard, soon: true },
-    { id: 'mch',   n: 'Mailchimp',          d: 'Klienti do e-mailových kampaní',               i: I.Mail,       soon: true },
-    { id: 'slack', n: 'Slack',              d: 'Notifikace o důležitých hovorech',             i: I.Bell,       soon: true },
+const SetInteg = ({ user, companySettings, onSettingsSaved }) => {
+  const [expanded, setExpanded]   = useState(null);
+  const [twilioPhone, setTwilioPhone]   = useState(companySettings?.twilio_phone_number ?? '');
+  const [savingTwilio, setSavingTwilio] = useState(false);
+  const [gcalConnected, setGcalConnected] = useState(!!(companySettings?.gcal_access_token));
+  const [syncingGcal, setSyncingGcal] = useState(false);
+
+  useEffect(() => {
+    setTwilioPhone(companySettings?.twilio_phone_number ?? '');
+    setGcalConnected(!!(companySettings?.gcal_access_token));
+  }, [companySettings]);
+
+  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? '';
+  const twilioWebhookUrl = SUPABASE_URL ? `${SUPABASE_URL}/functions/v1/twilio-voice` : '';
+
+  async function saveTwilioPhone() {
+    if (!user) return;
+    setSavingTwilio(true);
+    try {
+      await saveCompanySettings(user.id, { twilio_phone_number: twilioPhone.trim() || null });
+      toast.success('Twilio číslo uloženo.');
+      if (onSettingsSaved) onSettingsSaved();
+    } catch (e) {
+      toast.error(e.message || 'Chyba při ukládání.');
+    } finally {
+      setSavingTwilio(false);
+    }
+  }
+
+  async function connectGoogleCalendar() {
+    if (!user || !SUPABASE_URL) { toast.error('Konfigurace není dostupná.'); return; }
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    window.location.href = `${SUPABASE_URL}/functions/v1/google-calendar-auth?action=authorize`;
+  }
+
+  async function syncGcal() {
+    if (!user || !SUPABASE_URL) return;
+    setSyncingGcal(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/google-calendar-sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ action: 'push' }),
+      });
+      const result = await resp.json();
+      if (!resp.ok) throw new Error(result.error);
+      toast.success(`Synchronizováno ${result.pushed} rezervací do Google Kalendáře.`);
+    } catch (e) {
+      toast.error(e.message || 'Chyba při synchronizaci.');
+    } finally {
+      setSyncingGcal(false);
+    }
+  }
+
+  const soonItems = [
+    { id: 'res',   n: 'Reservio',      d: 'Import stávajících rezervací a klientů', i: I.Globe      },
+    { id: 'pos',   n: 'Storyous POS',  d: 'Propojit platby a útratu klientů',       i: I.CreditCard },
+    { id: 'mch',   n: 'Mailchimp',     d: 'Klienti do e-mailových kampaní',         i: I.Mail       },
+    { id: 'slack', n: 'Slack',         d: 'Notifikace o důležitých hovorech',       i: I.Bell       },
   ];
 
+  const inputSt = { padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--paper)', fontSize: 13, color: 'var(--ink)', outline: 'none', width: '100%', fontFamily: 'inherit' };
+
   return (
-    <div className="card lg">
-      <div className="eyebrow">Propojení</div>
-      <div className="h-section" style={{ marginTop: 8, marginBottom: 22, fontSize: 22 }}>Co všechno máte připojené</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 12 }}>
-        {items.map((it) => {
-          const Ico = it.i;
-          return (
-            <div key={it.id} className="card thin" style={{ padding: 18 }}>
-              <div className="row gap-3" style={{ alignItems: 'flex-start' }}>
-                <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(255,255,255,0.04)', color: 'var(--ink-2)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                  <Ico s={18} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ fontSize: 14, fontWeight: 500 }}>{it.n}</div>
-                    <Tag>Připravujeme</Tag>
-                  </div>
-                  <div className="muted" style={{ fontSize: 12.5, marginTop: 4, lineHeight: 1.5 }}>{it.d}</div>
-                </div>
+    <div className="col gap-4">
+      {/* ── Twilio ──────────────────────────────────────────────── */}
+      <div className="card lg">
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+          <div>
+            <div className="eyebrow">Telefonie</div>
+            <div className="h-section" style={{ fontSize: 20, marginTop: 6 }}>Twilio · AI recepční</div>
+          </div>
+          <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.04)', color: 'var(--ink-2)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+            <I.Phone s={18} />
+          </div>
+        </div>
+        <div className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 20 }}>
+          Propojte Twilio číslo, aby AI recepční Nikola přijímala hovory a rezervovala termíny.
+        </div>
+
+        <div className="col gap-3">
+          <div>
+            <div className="lbl" style={{ marginBottom: 6 }}>Vaše Twilio telefonní číslo</div>
+            <div className="row gap-2">
+              <input
+                style={inputSt}
+                value={twilioPhone}
+                onChange={e => setTwilioPhone(e.target.value)}
+                placeholder="+420 XXX XXX XXX"
+              />
+              <Btn variant="accent" size="sm" onClick={saveTwilioPhone} disabled={savingTwilio}>
+                {savingTwilio ? 'Ukládám…' : 'Uložit'}
+              </Btn>
+            </div>
+          </div>
+
+          {twilioWebhookUrl && (
+            <div>
+              <div className="lbl" style={{ marginBottom: 6 }}>Voice Webhook URL <span className="muted">(nastavte v Twilio Console)</span></div>
+              <div className="field row gap-2" style={{ padding: '8px 12px', alignItems: 'center' }}>
+                <span className="mono muted" style={{ fontSize: 12, flex: 1, wordBreak: 'break-all' }}>{twilioWebhookUrl}</span>
+                <Btn variant="ghost" size="sm" icon={I.Copy} onClick={() => { navigator.clipboard.writeText(twilioWebhookUrl); toast.success('Zkopírováno'); }} />
+              </div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.55 }}>
+                V Twilio Console → Phone Numbers → Active Numbers → vyberte číslo → Voice Configuration → nastavte tento URL jako webhook při příchozím hovoru (HTTP POST).
               </div>
             </div>
-          );
-        })}
+          )}
+
+          <div className="card thin" style={{ padding: '12px 16px', background: 'var(--accent-soft)' }}>
+            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>Jak to funguje</div>
+            <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6 }}>
+              Zákazník zavolá na vaše Twilio číslo → Nikola (AI) se představí a zeptá se, co zákazník potřebuje → Claude zpracuje odpověď a zarezervuje termín → Zákazník dostane SMS potvrzení.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Google Calendar ─────────────────────────────────────── */}
+      <div className="card lg">
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+          <div>
+            <div className="eyebrow">Kalendář</div>
+            <div className="h-section" style={{ fontSize: 20, marginTop: 6 }}>Google Calendar</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {gcalConnected && <Tag variant="live"><I.Check s={10} />Propojeno</Tag>}
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.04)', color: 'var(--ink-2)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+              <I.Calendar s={18} />
+            </div>
+          </div>
+        </div>
+        <div className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 20 }}>
+          Synchronizujte rezervace z PlanLess do Google Kalendáře. Propojení vyžaduje Google účet.
+        </div>
+
+        <div className="row gap-2" style={{ flexWrap: 'wrap' }}>
+          {!gcalConnected ? (
+            <Btn variant="accent" icon={I.Link} onClick={connectGoogleCalendar}>
+              Propojit Google Kalendář
+            </Btn>
+          ) : (
+            <>
+              <Btn variant="accent" icon={I.Calendar} onClick={syncGcal} disabled={syncingGcal}>
+                {syncingGcal ? 'Synchronizuji…' : 'Synchronizovat teď'}
+              </Btn>
+              <Btn variant="ghost" icon={I.X} onClick={async () => {
+                await saveCompanySettings(user.id, { gcal_access_token: null, gcal_refresh_token: null });
+                setGcalConnected(false);
+                toast.success('Google Kalendář odpojen.');
+              }}>Odpojit</Btn>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Připravujeme ────────────────────────────────────────── */}
+      <div className="card lg">
+        <div className="eyebrow" style={{ marginBottom: 16 }}>Připravujeme</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 12 }}>
+          {soonItems.map((it) => {
+            const Ico = it.i;
+            return (
+              <div key={it.id} className="card thin" style={{ padding: 18 }}>
+                <div className="row gap-3" style={{ alignItems: 'flex-start' }}>
+                  <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(255,255,255,0.04)', color: 'var(--ink-2)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                    <Ico s={18} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontSize: 14, fontWeight: 500 }}>{it.n}</div>
+                      <Tag>Připravujeme</Tag>
+                    </div>
+                    <div className="muted" style={{ fontSize: 12.5, marginTop: 4, lineHeight: 1.5 }}>{it.d}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -2023,7 +2194,7 @@ const SettingsView = () => {
         {tab === 'ai'           && <SetAI user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
         {tab === 'hours'        && <SetHours user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
         {tab === 'rules'        && <SetRules user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
-        {tab === 'integrations' && <SetInteg />}
+        {tab === 'integrations' && <SetInteg user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
         {tab === 'billing'      && <SetBilling />}
         {tab === 'account'      && <SetAccount user={user} />}
       </div>

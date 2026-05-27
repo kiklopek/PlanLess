@@ -14,26 +14,6 @@ const ArrowR   = (p) => <Ic {...p}><line x1="5" y1="12" x2="19" y2="12" /><polyl
 const ZapIc    = (p) => <Ic {...p}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></Ic>
 const LockIc   = (p) => <Ic {...p}><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></Ic>
 const ShieldIc = (p) => <Ic {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></Ic>
-const CardIc   = (p) => <Ic {...p}><rect x="2" y="6" width="20" height="12" rx="2" /><line x1="2" y1="10" x2="22" y2="10" /></Ic>
-
-function formatCardNum(raw) {
-  const digits = raw.replace(/\D/g, '').slice(0, 16)
-  return digits.match(/.{1,4}/g)?.join(' ') || ''
-}
-
-function detectBrand(num) {
-  const n = num.replace(/\s/g, '')
-  if (/^4/.test(n)) return 'VISA'
-  if (/^5[1-5]/.test(n)) return 'MC'
-  if (/^3[47]/.test(n)) return 'AMEX'
-  return ''
-}
-
-function formatExpiry(raw) {
-  const digits = raw.replace(/\D/g, '').slice(0, 4)
-  if (digits.length > 2) return digits.slice(0, 2) + ' / ' + digits.slice(2)
-  return digits
-}
 
 const INCLUDES = [
   'Až 500 hovorů / měsíc',
@@ -43,23 +23,12 @@ const INCLUDES = [
   'Prioritní česká podpora',
 ]
 
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+
 export default function Payment() {
   const navigate = useNavigate()
   const [billing, setBilling] = useState('yearly')
-  const [cardNum, setCardNum] = useState('')
-  const [expiry, setExpiry] = useState('')
-  const [cvc, setCvc] = useState('')
-  const [cardHolder, setCardHolder] = useState('')
-  const [companyName, setCompanyName] = useState('')
-  const [email, setEmail] = useState('')
-  const [ico, setIco] = useState('')
-  const [dic, setDic] = useState('')
-  const [street, setStreet] = useState('')
-  const [city, setCity] = useState('')
-  const [zip, setZip] = useState('')
-  const [country, setCountry] = useState('CZ')
-
-  const brand = detectBrand(cardNum)
+  const [submitting, setSubmitting] = useState(false)
 
   const monthlyPrice = 2490
   const yearlyMonthly = 1990
@@ -71,23 +40,52 @@ export default function Payment() {
   trialEnd.setDate(trialEnd.getDate() + 14)
   const trialEndStr = trialEnd.toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric' })
 
-  const [submitting, setSubmitting] = useState(false)
-
   async function handleSubmit(e) {
     e.preventDefault()
     setSubmitting(true)
     try {
-      const { data: { user }, error: userError } = await supabase.auth.getUser()
-      if (userError || !user) { navigate('/login'); return }
+      const { data: { session }, error: sessErr } = await supabase.auth.getSession()
+      if (sessErr || !session) { navigate('/login'); return }
 
-      const { error } = await supabase
-        .from('profiles')
-        .upsert({ id: user.id, is_subscribed: true }, { onConflict: 'id' })
+      // If no Stripe is configured (dev/no env), fall back to direct activation
+      if (!SUPABASE_URL || SUPABASE_URL.includes('placeholder')) {
+        const { error } = await supabase
+          .from('profiles')
+          .upsert({ id: session.user.id, is_subscribed: true }, { onConflict: 'id' })
+        if (error) { toast.error('Chyba při aktivaci: ' + error.message); return }
+        toast.success('Zkušební doba aktivována!')
+        navigate('/app')
+        return
+      }
 
-      if (error) { toast.error('Chyba při aktivaci: ' + error.message); return }
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/create-checkout-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ billing }),
+      })
 
-      toast.success('Zkušební doba aktivována!')
-      navigate('/app')
+      if (!resp.ok) {
+        // Edge Function not deployed yet — fallback to direct activation
+        const { error } = await supabase
+          .from('profiles')
+          .upsert({ id: session.user.id, is_subscribed: true }, { onConflict: 'id' })
+        if (error) { toast.error('Chyba při aktivaci: ' + error.message); return }
+        toast.success('Zkušební doba aktivována!')
+        navigate('/app')
+        return
+      }
+
+      const { url } = await resp.json()
+      if (url) {
+        window.location.href = url
+      } else {
+        toast.error('Nepodařilo se vytvořit platební relaci.')
+      }
+    } catch {
+      toast.error('Chyba při přesměrování na platební bránu.')
     } finally {
       setSubmitting(false)
     }
@@ -124,8 +122,8 @@ export default function Payment() {
           <div className="pay-eyebrow">Aktivace předplatného</div>
           <h1>Posledních pár <span className="it">vteřin</span>.</h1>
           <p className="pay-lead">
-            Vyplňte fakturační údaje a kartu. Prvních 14 dní je zdarma — kartu strhneme až poté,
-            a teprve s vaším výslovným souhlasem.
+            Zvolte fakturační období a klikněte na tlačítko. Budete bezpečně přesměrováni
+            na platební stránku Stripe. Prvních 14 dní je zdarma.
           </p>
 
           {/* 1. Billing cycle */}
@@ -157,109 +155,20 @@ export default function Payment() {
             </div>
           </div>
 
-          {/* 2. Billing info */}
+          {/* 2. Stripe redirect info */}
           <div className="pay-card">
             <div className="pay-card-head">
-              <div className="t"><span className="num">2</span> Fakturační údaje</div>
+              <div className="t"><span className="num">2</span> Platba přes Stripe</div>
             </div>
-            <div className="pay-field-grid">
-              <div className="pay-field full">
-                <div className="pay-label">Název firmy / jméno</div>
-                <input className="pay-input" type="text" placeholder="Salon Svatopluk s.r.o."
-                  value={companyName} onChange={e => setCompanyName(e.target.value)} />
-              </div>
-              <div className="pay-field full">
-                <div className="pay-label">E-mail pro faktury</div>
-                <input className="pay-input" type="email" placeholder="ucetni@salon.cz"
-                  value={email} onChange={e => setEmail(e.target.value)} />
-              </div>
-              <div className="pay-field">
-                <div className="pay-label">IČO</div>
-                <input className="pay-input" type="text" placeholder="08 415 290"
-                  value={ico} onChange={e => setIco(e.target.value)} />
-              </div>
-              <div className="pay-field">
-                <div className="pay-label">DIČ <span className="opt">volitelné</span></div>
-                <input className="pay-input" type="text" placeholder="CZ08415290"
-                  value={dic} onChange={e => setDic(e.target.value)} />
-              </div>
-              <div className="pay-field full">
-                <div className="pay-label">Adresa</div>
-                <input className="pay-input" type="text" placeholder="Dlouhá 21"
-                  value={street} onChange={e => setStreet(e.target.value)} />
-              </div>
-              <div className="pay-field">
-                <div className="pay-label">Město</div>
-                <input className="pay-input" type="text" placeholder="Praha 1"
-                  value={city} onChange={e => setCity(e.target.value)} />
-              </div>
-              <div className="pay-field">
-                <div className="pay-label">PSČ</div>
-                <input className="pay-input" type="text" placeholder="110 00"
-                  value={zip} onChange={e => setZip(e.target.value)} />
-              </div>
-              <div className="pay-field full">
-                <div className="pay-label">Země</div>
-                <select className="pay-select" value={country} onChange={e => setCountry(e.target.value)}>
-                  <option value="CZ">Česká republika</option>
-                  <option value="SK">Slovenská republika</option>
-                  <option value="PL">Polsko</option>
-                  <option value="DE">Německo</option>
-                </select>
-              </div>
+            <div style={{ padding: '4px 0 8px', color: 'var(--ink-2)', fontSize: 13.5, lineHeight: 1.6 }}>
+              Po kliknutí na tlačítko budete přesměrováni na zabezpečenou platební stránku Stripe,
+              kde zadáte platební kartu. Vaše karta <strong>nebude strhnuta dnes</strong> —
+              zkušební doba 14 dní je zdarma.
             </div>
-          </div>
-
-          {/* 3. Card */}
-          <div className="pay-card">
-            <div className="pay-card-head">
-              <div className="t"><span className="num">3</span> Platební karta</div>
-              <div className="pay-card-brands">
-                <div className="brand-tag">VISA</div>
-                <div className="brand-tag">MASTERCARD</div>
-                <div className="brand-tag">AMEX</div>
-              </div>
-            </div>
-
-            <div className="pay-field full">
-              <div className="pay-label">Číslo karty</div>
-              <div className="card-input-wrap">
-                <input
-                  className="pay-input mono"
-                  type="text" placeholder="0000 0000 0000 0000"
-                  value={cardNum}
-                  style={brand ? { paddingRight: 70 } : {}}
-                  onChange={e => setCardNum(formatCardNum(e.target.value))}
-                />
-                {brand && (
-                  <div className="card-brands-detected">
-                    <div className="brand-tag active">{brand}</div>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="pay-field-grid">
-              <div className="pay-field">
-                <div className="pay-label">Platí do</div>
-                <input className="pay-input mono" type="text" placeholder="MM / RR"
-                  value={expiry} onChange={e => setExpiry(formatExpiry(e.target.value))} />
-              </div>
-              <div className="pay-field">
-                <div className="pay-label">CVC <span className="opt">3 čísla</span></div>
-                <input className="pay-input mono" type="text" placeholder="123" maxLength={4}
-                  value={cvc} onChange={e => setCvc(e.target.value.replace(/\D/g, '').slice(0, 4))} />
-              </div>
-            </div>
-            <div className="pay-field full">
-              <div className="pay-label">Jméno na kartě</div>
-              <input className="pay-input" type="text" placeholder="Vaše jméno"
-                value={cardHolder} onChange={e => setCardHolder(e.target.value)} />
-            </div>
-
             <div className="trust-strip">
               <div className="item"><LockIc s={13} /> Šifrováno 256-bit SSL</div>
               <div className="item"><ShieldIc s={13} /> PCI DSS Level 1</div>
-              <div className="item"><CardIc s={13} /> Stripe</div>
+              <div className="item" style={{ fontWeight: 600, letterSpacing: '0.02em' }}>stripe</div>
             </div>
           </div>
         </div>
@@ -316,12 +225,12 @@ export default function Payment() {
           </div>
 
           <button className="submit-btn" type="submit" disabled={submitting}>
-            {submitting ? 'Aktivuji…' : 'Aktivovat zkušební dobu'} {!submitting && <ArrowR s={16} />}
+            {submitting ? 'Přesměrovávám…' : 'Aktivovat zkušební dobu'} {!submitting && <ArrowR s={16} />}
           </button>
 
           <div className="fine">
             Pokračováním souhlasíte s <a>obchodními podmínkami</a> a <a>zpracováním osobních údajů</a>.
-            Předplatné se obnovuje automaticky a kdykoliv ho můžete zrušit v nastavení.
+            Předplatné se obnovuje automaticky a kdykoliv ho můžete zrušit v nastavení nebo přímo v Stripe portálu.
           </div>
 
           <div className="payment-logos">
