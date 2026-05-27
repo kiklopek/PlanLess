@@ -9,6 +9,7 @@ import { fetchServices, createService, updateService, deleteService } from '../l
 import { fetchBookings, createBooking, deleteBooking } from '../lib/bookingsDb.js';
 import { createFollowup } from '../lib/followupsDb.js';
 import { getCompanySettings, saveCompanySettings } from '../lib/companySettings.js';
+import { supabase } from '../lib/supabase.js';
 import { SuggestedSlots } from '../components/SuggestedSlots.jsx';
 import toast from 'react-hot-toast';
 
@@ -1914,6 +1915,77 @@ const SetCompany = ({ user, companySettings, onSettingsSaved }) => {
   );
 };
 
+const SetAccount = ({ user }) => {
+  const [pw, setPw] = useState('');
+  const [pw2, setPw2] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const changePw = async () => {
+    if (pw.length < 8) { toast.error('Heslo musí mít alespoň 8 znaků.'); return; }
+    if (pw !== pw2) { toast.error('Hesla se neshodují.'); return; }
+    setSaving(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: pw });
+      if (error) throw error;
+      toast.success('Heslo bylo změněno.');
+      setPw(''); setPw2('');
+    } catch (e) {
+      toast.error(e.message || 'Chyba při změně hesla.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputStyle = { background: 'transparent', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink)', width: '100%' };
+
+  return (
+    <div className="col gap-4">
+      <div className="card lg">
+        <div className="eyebrow">Účet</div>
+        <div className="h-section" style={{ marginTop: 8, marginBottom: 22, fontSize: 22 }}>
+          Vaše <span className="serif-it" style={{ color: 'var(--accent)' }}>přihlašovací údaje</span>
+        </div>
+        <div className="form-row">
+          <div>
+            <div className="lbl">E-mail</div>
+            <div className="desc">Váš přihlašovací e-mail nelze změnit přímo — kontaktujte podporu.</div>
+          </div>
+          <div className="field" style={{ padding: '8px 12px', opacity: 0.6, cursor: 'not-allowed' }}>
+            <input value={user?.email ?? ''} readOnly style={{ ...inputStyle, cursor: 'not-allowed' }} />
+          </div>
+        </div>
+        <div className="form-row">
+          <div>
+            <div className="lbl">Nové heslo</div>
+            <div className="desc">Alespoň 8 znaků, velké písmeno, číslice a symbol.</div>
+          </div>
+          <div className="col gap-2" style={{ flex: 1 }}>
+            <div className="field" style={{ padding: '8px 12px' }}>
+              <input type="password" placeholder="Nové heslo" value={pw} onChange={e => setPw(e.target.value)} style={inputStyle} autoComplete="new-password" />
+            </div>
+            <div className="field" style={{ padding: '8px 12px' }}>
+              <input type="password" placeholder="Potvrdit nové heslo" value={pw2} onChange={e => setPw2(e.target.value)} style={inputStyle} autoComplete="new-password" />
+            </div>
+            <div>
+              <Btn variant="accent" size="sm" onClick={changePw} disabled={saving || !pw}>{saving ? 'Ukládám…' : 'Změnit heslo'}</Btn>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card lg">
+        <div className="h-section" style={{ fontSize: 18, marginBottom: 8 }}>Nebezpečná zóna</div>
+        <div className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 16 }}>
+          Smazání účtu je nevratné. Všechna data (klienti, rezervace, hovory) budou trvale odstraněna.
+        </div>
+        <Btn variant="ghost" size="sm" style={{ color: '#f87171', borderColor: 'rgba(248,113,113,0.3)' }} onClick={() => toast.error('Pro smazání účtu kontaktujte podporu na help@planless.cz.')}>
+          Smazat účet
+        </Btn>
+      </div>
+    </div>
+  );
+};
+
 const SettingsView = () => {
   const { user } = useAuth();
   const [tab, setTab] = useState('company');
@@ -1931,6 +2003,7 @@ const SettingsView = () => {
     { id: 'rules',        label: 'Pravidla',       icon: I.Sparkle    },
     { id: 'integrations', label: 'Integrace',      icon: I.Link       },
     { id: 'billing',      label: 'Předplatné',     icon: I.CreditCard },
+    { id: 'account',      label: 'Účet',           icon: I.Lock       },
   ];
 
   return (
@@ -1952,6 +2025,7 @@ const SettingsView = () => {
         {tab === 'rules'        && <SetRules user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
         {tab === 'integrations' && <SetInteg />}
         {tab === 'billing'      && <SetBilling />}
+        {tab === 'account'      && <SetAccount user={user} />}
       </div>
     </div>
   );

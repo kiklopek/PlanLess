@@ -197,3 +197,12 @@ ALTER TABLE public.followups ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "followups_own" ON public.followups USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 CREATE INDEX IF NOT EXISTS followups_status_idx ON public.followups(status, scheduled_at) WHERE status = 'queued';
 CREATE INDEX IF NOT EXISTS followups_user_id_idx ON public.followups(user_id);
+
+-- ============================================================
+-- Migrations (pro existující databáze — bezpečné opakované spuštění)
+-- ============================================================
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS company_description text;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS ai_voice text DEFAULT 'nikola';
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS ai_tone text DEFAULT 'warm';
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS ai_auto_book boolean DEFAULT true;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS ai_confirm_sms boolean DEFAULT true;

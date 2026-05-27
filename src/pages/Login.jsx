@@ -40,7 +40,7 @@ export default function Login() {
     e.preventDefault();
     if (!email) { toast.error('Zadejte e-mail pro reset hesla.'); return; }
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/login`,
+      redirectTo: `${window.location.origin}/reset-password`,
     });
     if (error) toast.error(error.message);
     else toast.success('Odkaz na reset hesla byl odeslán na váš e-mail.');

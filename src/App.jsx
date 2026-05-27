@@ -4,12 +4,13 @@ import { Toaster } from 'react-hot-toast'
 import { AuthProvider } from './contexts/AuthContext.jsx'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
 
-const Landing    = lazy(() => import('./pages/Landing.jsx'))
-const Login      = lazy(() => import('./pages/Login.jsx'))
-const Register   = lazy(() => import('./pages/Register.jsx'))
-const Onboarding = lazy(() => import('./pages/Onboarding.jsx'))
-const Dashboard  = lazy(() => import('./pages/Dashboard.jsx'))
-const Payment    = lazy(() => import('./pages/Payment.jsx'))
+const Landing       = lazy(() => import('./pages/Landing.jsx'))
+const Login         = lazy(() => import('./pages/Login.jsx'))
+const Register      = lazy(() => import('./pages/Register.jsx'))
+const ResetPassword = lazy(() => import('./pages/ResetPassword.jsx'))
+const Onboarding    = lazy(() => import('./pages/Onboarding.jsx'))
+const Dashboard     = lazy(() => import('./pages/Dashboard.jsx'))
+const Payment       = lazy(() => import('./pages/Payment.jsx'))
 
 function App() {
   return (
@@ -30,8 +31,9 @@ function App() {
         <Suspense fallback={<div className="loader">Načítám PlanLess…</div>}>
           <Routes>
             <Route path="/"           element={<Landing />} />
-            <Route path="/login"      element={<Login />} />
-            <Route path="/register"   element={<Register />} />
+            <Route path="/login"          element={<Login />} />
+            <Route path="/register"       element={<Register />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/onboarding" element={<Onboarding />} />
             <Route path="/payment"    element={<Payment />} />
             <Route path="/app"        element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
