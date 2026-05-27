@@ -5,10 +5,18 @@
  */
 import { adminClient } from '../_shared/supabase.ts'
 import { getAvailableSlots } from '../_shared/scheduling.ts'
+import { rateLimit, pruneRateLimitStore } from '../_shared/rateLimit.ts'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' } })
+  }
+
+  // Rate limit: 30 requests per IP per minute
+  const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  pruneRateLimitStore()
+  if (!rateLimit(`avail:${clientIp}`, 30, 60)) {
+    return Response.json({ error: 'Too many requests. Please try again later.' }, { status: 429 })
   }
 
   const { user_id, service_id, service_name, preferred_date, count = 5 } = await req.json()

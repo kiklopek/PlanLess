@@ -278,6 +278,24 @@ ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS webhook_url text;
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS resend_from_email text;
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS email_confirm_enabled boolean DEFAULT false;
 
+-- Phase 12: Production stability
+-- Error logs table (Edge Functions and client errors)
+CREATE TABLE IF NOT EXISTS public.error_logs (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  source text NOT NULL, -- 'edge_function', 'client', etc.
+  function_name text,
+  message text,
+  stack text,
+  metadata jsonb,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE public.error_logs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "error_logs_own" ON public.error_logs USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE INDEX IF NOT EXISTS error_logs_user_id_idx ON public.error_logs(user_id, created_at DESC);
+-- Auto-purge: only keep last 90 days (run periodically via pg_cron if available)
+-- DELETE FROM public.error_logs WHERE created_at < now() - interval '90 days';
+
 -- Allow customers read for public booking page (needed for followups join)
 CREATE POLICY IF NOT EXISTS "customers_public_insert" ON public.customers
   FOR INSERT WITH CHECK (true);

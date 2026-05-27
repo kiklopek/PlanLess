@@ -2106,6 +2106,7 @@ const SetInteg = ({ user, companySettings, onSettingsSaved }) => {
 
   const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? '';
   const twilioWebhookUrl = SUPABASE_URL ? `${SUPABASE_URL}/functions/v1/twilio-voice` : '';
+  const healthCheckUrl = SUPABASE_URL ? `${SUPABASE_URL}/functions/v1/health` : '';
 
   async function saveTwilioPhone() {
     if (!user) return;
@@ -2449,6 +2450,21 @@ const SetInteg = ({ user, companySettings, onSettingsSaved }) => {
           })}
         </div>
       </div>
+
+      {/* ── Systém & monitoring ──────────────────────────────────── */}
+      {healthCheckUrl && (
+        <div className="card lg">
+          <div className="eyebrow" style={{ marginBottom: 12 }}>Monitoring</div>
+          <div className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 16 }}>
+            Použijte tento URL pro uptime monitoring (Uptime Robot, BetterStack, UptimeKuma). Vrací HTTP 200 pokud jsou systémy v pořádku.
+          </div>
+          <div className="field row gap-2" style={{ padding: '8px 12px', alignItems: 'center' }}>
+            <span className="mono muted" style={{ fontSize: 12, flex: 1, wordBreak: 'break-all' }}>{healthCheckUrl}</span>
+            <Btn variant="ghost" size="sm" icon={I.Copy} onClick={() => { navigator.clipboard.writeText(healthCheckUrl); toast.success('Zkopírováno'); }} />
+            <Btn variant="ghost" size="sm" icon={I.Globe} onClick={() => window.open(healthCheckUrl, '_blank')} />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
