@@ -1885,13 +1885,14 @@ const ServicesView = ({ onRefresh }) => {
               <th>Služba</th>
               <th style={{ width: 110 }}>Délka</th>
               <th style={{ width: 130 }}>Cena</th>
+              <th style={{ width: 90 }}>Rezervace</th>
               <th style={{ width: 110 }}>Stav</th>
               <th style={{ width: 60 }} />
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
-              <tr><td colSpan={5} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
+              <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
                 Zatím žádné služby. Klikněte + Nová služba.
               </td></tr>
             )}
@@ -1903,6 +1904,7 @@ const ServicesView = ({ onRefresh }) => {
                 </td>
                 <td className="num muted">{s.d} min</td>
                 <td className="num" style={{ fontWeight: 500 }}>{s.p != null ? fmtPrice(s.p) : '—'}</td>
+                <td className="num muted">{EVENTS.filter(e => e.service_id === s.id).length}</td>
                 <td>
                   {s.on
                     ? <Tag variant="live"><span className="d" />Aktivní</Tag>
