@@ -912,15 +912,19 @@ function getWeekFromDate(anchorDate) {
   };
 }
 
-const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
+const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed }) => {
   const { user } = useAuth();
   const [staff, setStaff] = useState('all');
   const [view, setView] = useState('week');
   const [anchor, setAnchor] = useState(() => new Date());
   const [bookingModal, setBookingModal] = useState(false);
+  const [blockModal, setBlockModal] = useState(false);
   const [selEvent, setSelEvent] = useState(null);
+  const [selBlock, setSelBlock] = useState(null);
   const [bForm, setBForm] = useState({ date: '', time: '09:00', serviceId: '', staffId: '', note: '' });
+  const [blForm, setBlForm] = useState({ date: '', timeFrom: '09:00', timeTo: '17:00', reason: '' });
   const [bSaving, setBSaving] = useState(false);
+  const [blSaving, setBlSaving] = useState(false);
 
   useEffect(() => {
     if (prefillClient) {
@@ -962,10 +966,50 @@ const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
     });
   };
 
-  const openBooking = () => {
-    const today = new Date().toISOString().slice(0, 10);
-    setBForm({ date: today, time: '09:00', serviceId: SERVICES[0]?.id ?? '', staffId: '', note: '' });
+  const openBooking = (date, time) => {
+    const today = date ?? new Date().toISOString().slice(0, 10);
+    setBForm({ date: today, time: time ?? '09:00', serviceId: SERVICES[0]?.id ?? '', staffId: '', note: '' });
     setBookingModal(true);
+    setBlockModal(false);
+    setSelEvent(null);
+    setSelBlock(null);
+  };
+
+  const openBlock = (date) => {
+    setBlForm({ date: date ?? new Date().toISOString().slice(0, 10), timeFrom: '09:00', timeTo: '17:00', reason: '' });
+    setBlockModal(true);
+    setBookingModal(false);
+    setSelEvent(null);
+    setSelBlock(null);
+  };
+
+  const saveBlock = async () => {
+    if (!blForm.date) { toast.error('Vyberte datum.'); return; }
+    const startsAt = new Date(`${blForm.date}T${blForm.timeFrom}:00`);
+    const endsAt = new Date(`${blForm.date}T${blForm.timeTo}:00`);
+    if (endsAt <= startsAt) { toast.error('Konec musí být po začátku.'); return; }
+    setBlSaving(true);
+    try {
+      await createBlock({ starts_at: startsAt.toISOString(), ends_at: endsAt.toISOString(), reason: blForm.reason || null });
+      toast.success('Blokace přidána.');
+      setBlockModal(false);
+      await onRefreshBlocks?.();
+    } catch (e) {
+      toast.error(e.message || 'Chyba při ukládání.');
+    } finally {
+      setBlSaving(false);
+    }
+  };
+
+  const deleteBlk = async (id) => {
+    try {
+      await deleteBlock(id);
+      toast.success('Blokace odstraněna.');
+      setSelBlock(null);
+      await onRefreshBlocks?.();
+    } catch (e) {
+      toast.error(e.message || 'Chyba při mazání.');
+    }
   };
 
   const saveBooking = async () => {
@@ -1019,7 +1063,8 @@ const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
             value={staff}
             onChange={setStaff}
           />
-          <Btn variant="accent" icon={I.Plus} size="sm" onClick={openBooking}>Nová rezervace</Btn>
+          <Btn variant="ghost" icon={I.X} size="sm" onClick={() => openBlock()} style={{ color: 'var(--ink-2)' }}>Blokovat čas</Btn>
+          <Btn variant="accent" icon={I.Plus} size="sm" onClick={() => openBooking()}>Nová rezervace</Btn>
         </div>
       </div>
 
@@ -1073,17 +1118,71 @@ const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
         </div>
       )}
 
+      {blockModal && (
+        <div className="card lg" style={{ marginBottom: 16, padding: 20 }}>
+          <div className="eyebrow" style={{ marginBottom: 14 }}>Blokovat čas</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
+            <label className="col gap-2">
+              <span className="lbl">Datum</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input type="date" value={blForm.date} onChange={e => setBlForm(f => ({ ...f, date: e.target.value }))} style={inputStyle} />
+              </div>
+            </label>
+            <label className="col gap-2">
+              <span className="lbl">Od</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input type="time" value={blForm.timeFrom} onChange={e => setBlForm(f => ({ ...f, timeFrom: e.target.value }))} style={inputStyle} />
+              </div>
+            </label>
+            <label className="col gap-2">
+              <span className="lbl">Do</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input type="time" value={blForm.timeTo} onChange={e => setBlForm(f => ({ ...f, timeTo: e.target.value }))} style={inputStyle} />
+              </div>
+            </label>
+            <label className="col gap-2" style={{ gridColumn: '1 / -1' }}>
+              <span className="lbl">Důvod (volitelný)</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <input placeholder="Dovolená, školení, přestávka…" value={blForm.reason} onChange={e => setBlForm(f => ({ ...f, reason: e.target.value }))} style={inputStyle} />
+              </div>
+            </label>
+          </div>
+          <div className="row gap-2">
+            <Btn variant="accent" size="sm" onClick={saveBlock} disabled={blSaving}>{blSaving ? 'Ukládám…' : 'Přidat blokaci'}</Btn>
+            <Btn variant="ghost" size="sm" onClick={() => setBlockModal(false)}>Zrušit</Btn>
+          </div>
+        </div>
+      )}
+
       {selEvent && (
         <div className="card" style={{ marginBottom: 16, padding: 16 }}>
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               <div style={{ fontSize: 14, fontWeight: 500 }}>{selEvent.t}</div>
               <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>{fmtTime(selEvent.s)} – {fmtTime(selEvent.e)}</div>
+              {selEvent.who && selEvent.who !== '—' && <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{selEvent.who}</div>}
               {selEvent.staff_id && (() => { const sm = STAFF.find(s => s.id === selEvent.staff_id); return sm ? <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{sm.name}</div> : null; })()}
             </div>
             <div className="row gap-2">
               <Btn variant="ghost" size="sm" icon={I.X} onClick={() => deleteEvt(selEvent.id)}>Zrušit rezervaci</Btn>
               <Btn variant="ghost" size="sm" icon={I.X} onClick={() => setSelEvent(null)} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selBlock && (
+        <div className="card" style={{ marginBottom: 16, padding: 16, borderColor: 'var(--ink-3)', opacity: 0.9 }}>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>{selBlock.reason || 'Blokovaný čas'}</div>
+              <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>
+                {new Date(selBlock.starts_at).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })} – {new Date(selBlock.ends_at).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+            <div className="row gap-2">
+              <Btn variant="ghost" size="sm" icon={I.X} onClick={() => deleteBlk(selBlock.id)}>Odstranit blokaci</Btn>
+              <Btn variant="ghost" size="sm" icon={I.X} onClick={() => setSelBlock(null)} />
             </div>
           </div>
         </div>
@@ -1102,18 +1201,58 @@ const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
           {hours.map((h) => <div key={h} className="cal-row-time">{h}:00</div>)}
         </div>
 
-        {events.length === 0 && (
+        {events.length === 0 && BLOCKS.filter(b => { const bs = new Date(b.starts_at); return bs >= week.weekStart && bs < week.weekEnd; }).length === 0 && (
           <div style={{ gridColumn: '2 / -1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 10, color: 'var(--ink-3)', fontSize: 13, padding: '60px 0' }}>
             <span>Tento týden žádné rezervace.</span>
-            <Btn variant="ghost" size="sm" icon={I.Plus} onClick={openBooking}>Přidat rezervaci</Btn>
+            <Btn variant="ghost" size="sm" icon={I.Plus} onClick={() => openBooking()}>Přidat rezervaci</Btn>
           </div>
         )}
         {week.days.map((w, col) => {
           const dim = col === 6;
           const colEvents = events.filter((e) => e.col === col);
+          const dayDate = week.days[col]?.date ?? week.weekStart;
+          const colBlocks = BLOCKS.filter(b => {
+            const bs = new Date(b.starts_at);
+            return (bs.getDay() + 6) % 7 === col && bs >= week.weekStart && bs < week.weekEnd;
+          });
           return (
             <div key={col} className={cx('cal-col', dim && 'dim')}>
-              {hours.map((h) => <div key={h} className="cal-cell" />)}
+              {hours.map((h) => (
+                <div
+                  key={h}
+                  className="cal-cell"
+                  onClick={() => {
+                    const dateStr = new Date(week.weekStart.getTime() + col * 86400000).toISOString().slice(0,10);
+                    openBooking(dateStr, `${String(h).padStart(2,'0')}:00`);
+                  }}
+                  style={{ cursor: 'pointer' }}
+                />
+              ))}
+              {colBlocks.map((b) => {
+                const bs = new Date(b.starts_at);
+                const be = new Date(b.ends_at);
+                const bsH = bs.getHours() + bs.getMinutes() / 60;
+                const beH = be.getHours() + be.getMinutes() / 60;
+                const top = (bsH - START_H) * ROW_H;
+                const height = Math.max((beH - bsH) * ROW_H - 2, 16);
+                return (
+                  <div
+                    key={b.id}
+                    style={{
+                      position: 'absolute', top, height, left: 0, right: 2,
+                      background: 'repeating-linear-gradient(45deg, var(--paper-2), var(--paper-2) 4px, transparent 4px, transparent 10px)',
+                      borderRadius: 6, border: '1px solid var(--line)',
+                      cursor: 'pointer', overflow: 'hidden', zIndex: 1,
+                      opacity: selBlock?.id === b.id ? 1 : 0.7,
+                    }}
+                    onClick={(e) => { e.stopPropagation(); setSelBlock(selBlock?.id === b.id ? null : b); setSelEvent(null); }}
+                  >
+                    <div style={{ fontSize: 10, color: 'var(--ink-3)', padding: '3px 5px', fontWeight: 500 }}>
+                      {b.reason || 'Blokováno'}
+                    </div>
+                  </div>
+                );
+              })}
               {colEvents.map((e, i) => {
                 const top = (e.s - START_H) * ROW_H;
                 const height = Math.max((e.e - e.s) * ROW_H - 4, 20);
@@ -1122,7 +1261,7 @@ const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
                     key={i}
                     className={cx('evt', e.c, e.ai && 'ai-suggest', selEvent?.id === e.id && 'on')}
                     style={{ top, height, cursor: 'pointer' }}
-                    onClick={() => setSelEvent(selEvent?.id === e.id ? null : e)}
+                    onClick={(ev) => { ev.stopPropagation(); setSelEvent(selEvent?.id === e.id ? null : e); setSelBlock(null); }}
                   >
                     <div className="t">{e.t}</div>
                     <div className="s">{fmtTime(e.s)}–{fmtTime(e.e)}</div>
@@ -1139,8 +1278,12 @@ const CalendarView = ({ onRefresh, prefillClient, onPrefillUsed }) => {
         })}
       </div>
 
-      <div className="row gap-4" style={{ marginTop: 18, flexWrap: 'wrap' }}>
+      <div className="row gap-4" style={{ marginTop: 18, flexWrap: 'wrap', alignItems: 'center' }}>
         <Tag variant="accent"><span className="d" />Rezervace</Tag>
+        <div className="row gap-2" style={{ alignItems: 'center', fontSize: 12, color: 'var(--ink-3)' }}>
+          <div style={{ width: 14, height: 14, borderRadius: 3, background: 'repeating-linear-gradient(45deg, var(--paper-2), var(--paper-2) 3px, transparent 3px, transparent 7px)', border: '1px solid var(--line)' }} />
+          Blokovaný čas
+        </div>
       </div>
     </div>
   );
@@ -2945,6 +3088,7 @@ export default function Dashboard() {
       fetchServices().then(rows => { SERVICES = rows.map(mapServiceRow); }),
       fetchBookings().then(rows => { EVENTS = rows.map(mapBookingToEvent); }),
       fetchStaff().then(rows => { STAFF = rows; }),
+      fetchBlocks().then(rows => { BLOCKS = rows; }),
       getCompanySettings(user.id).then(s => setMainSettings(s)).catch(() => {}),
     ]).then(() => { setLoading(false); setDataVersion(v => v + 1); });
   }, [user]);
@@ -3022,6 +3166,12 @@ export default function Dashboard() {
     setDataVersion(v => v + 1);
   }, []);
 
+  const refreshBlocks = useCallback(async () => {
+    clearCachedBlocks();
+    BLOCKS = await fetchBlocks();
+    setDataVersion(v => v + 1);
+  }, []);
+
   const toggleAi = useCallback(async () => {
     if (!user || !mainSettings) return;
     const next = { ...mainSettings, ai_paused: !mainSettings.ai_paused };
@@ -3052,7 +3202,7 @@ export default function Dashboard() {
             {loading ? <LoadingView /> : <>
               {nav === 'today'     && <TodayView setNav={setNav} setCallSel={setCallSel} onRefresh={refreshBookings} />}
               {nav === 'inbox'     && <InboxView selId={callSel} setSelId={setCallSel} onBookingCreated={refreshBookings} onNavCalendar={() => setNav('calendar')} dataVersion={dataVersion} />}
-              {nav === 'calendar'  && <CalendarView onRefresh={refreshBookings} prefillClient={calPrefill} onPrefillUsed={() => setCalPrefill(null)} />}
+              {nav === 'calendar'  && <CalendarView onRefresh={refreshBookings} onRefreshBlocks={refreshBlocks} prefillClient={calPrefill} onPrefillUsed={() => setCalPrefill(null)} />}
               {nav === 'clients'   && <ClientsView onRefresh={refreshCustomers} onNavigate={(view, prefill) => { if (prefill) setCalPrefill(prefill); setNav(view); }} />}
               {nav === 'services'  && <ServicesView onRefresh={refreshServices} />}
               {nav === 'analytics' && <AnalyticsView />}
