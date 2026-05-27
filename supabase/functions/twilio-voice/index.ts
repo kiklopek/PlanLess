@@ -2,11 +2,14 @@
  * Twilio Voice Webhook — entry point for all incoming calls.
  * Configure in Twilio Console: A call comes in → Webhook → POST this URL.
  * Returns TwiML that greets caller (or plays out-of-hours message) and gathers speech.
+ *
+ * Uses ElevenLabs TTS if elevenlabs_voice_id is configured, otherwise falls back to Polly.Maja.
+ * NOTE: This function must have JWT verification disabled in Supabase Dashboard.
  */
 import { adminClient } from '../_shared/supabase.ts'
 import { isWithinWorkingHours, nextOpeningTime } from '../_shared/scheduling.ts'
 
-const CZECH_VOICE = 'Polly.Maja'
+const FALLBACK_VOICE = 'Polly.Maja'
 
 Deno.serve(async (req) => {
   const form = await req.formData()
@@ -18,7 +21,7 @@ Deno.serve(async (req) => {
 
   const { data: settings } = await db
     .from('company_settings')
-    .select('user_id, company_name, ai_greeting, working_hours, timezone, ai_paused, escalation_phone')
+    .select('user_id, company_name, ai_greeting, working_hours, timezone, ai_paused, escalation_phone, elevenlabs_voice_id')
     .eq('twilio_phone_number', to)
     .maybeSingle()
 
@@ -26,25 +29,24 @@ Deno.serve(async (req) => {
   const company  = settings?.company_name ?? 'salonu'
   const tz       = settings?.timezone ?? 'Europe/Prague'
   const wh       = settings?.working_hours ?? null
+  const voiceId  = settings?.elevenlabs_voice_id ?? null
 
-  // Check if AI is paused (manual override)
   if (settings?.ai_paused) {
     if (settings.escalation_phone) {
       return new Response(
-        `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="${CZECH_VOICE}" language="cs-CZ">Přepojuji vás na recepci, okamžik prosím.</Say><Dial>${escapeXml(settings.escalation_phone)}</Dial></Response>`,
+        `<?xml version="1.0" encoding="UTF-8"?><Response>${speak('Přepojuji vás na recepci, okamžik prosím.', voiceId)}<Dial>${escapeXml(settings.escalation_phone)}</Dial></Response>`,
         { headers: { 'Content-Type': 'text/xml; charset=utf-8' } },
       )
     }
-    return twimlSay('Omlouváme se, recepce je momentálně nedostupná. Zavolejte prosím později.', true)
+    return twimlSpeak('Omlouváme se, recepce je momentálně nedostupná. Zavolejte prosím později.', voiceId, true)
   }
 
-  // Check working hours
   if (wh) {
     const open = isWithinWorkingHours(wh, tz)
     if (!open) {
       const nextOpen = nextOpeningTime(wh, tz)
       const msg = `Dobrý den, ${company}. Momentálně jsme mimo provozní dobu. Jsme tu pro vás ${nextOpen}. Zavolejte nám prosím tehdy, rádi vám pomůžeme.`
-      return twimlSay(msg, true)
+      return twimlSpeak(msg, voiceId, true)
     }
   }
 
@@ -53,10 +55,10 @@ Deno.serve(async (req) => {
 
   if (userId) {
     await db.from('calls').insert({
-      user_id:          userId,
-      customer_phone:   from,
-      twilio_call_sid:  callSid,
-      status:           'live',
+      user_id:         userId,
+      customer_phone:  from,
+      twilio_call_sid: callSid,
+      status:          'live',
     })
   }
 
@@ -67,9 +69,9 @@ Deno.serve(async (req) => {
   <Gather input="speech" action="${gatherUrl}" method="POST"
           timeout="5" speechTimeout="auto" language="cs-CZ"
           actionOnEmptyResult="true">
-    <Say voice="${CZECH_VOICE}" language="cs-CZ">${escapeXml(greeting)}</Say>
+    ${speak(greeting, voiceId)}
   </Gather>
-  <Say voice="${CZECH_VOICE}" language="cs-CZ">Promiňte, neslyšela jsem vás. Zkuste zavolat znovu, ráda vám pomohu.</Say>
+  ${speak('Promiňte, neslyšela jsem vás. Zkuste zavolat znovu, ráda vám pomohu.', voiceId)}
 </Response>`
 
   return new Response(twiml, {
@@ -77,10 +79,19 @@ Deno.serve(async (req) => {
   })
 })
 
-function twimlSay(text: string, hangup = false) {
+/** Returns a TwiML <Play> for ElevenLabs or <Say> for Polly fallback */
+function speak(text: string, voiceId: string | null): string {
+  if (voiceId) {
+    const url = `${Deno.env.get('SUPABASE_URL')}/functions/v1/tts?t=${encodeURIComponent(text)}&v=${encodeURIComponent(voiceId)}`
+    return `<Play>${escapeXml(url)}</Play>`
+  }
+  return `<Say voice="${FALLBACK_VOICE}" language="cs-CZ">${escapeXml(text)}</Say>`
+}
+
+function twimlSpeak(text: string, voiceId: string | null, hangup = false) {
   const close = hangup ? '<Hangup/>' : ''
   return new Response(
-    `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="${CZECH_VOICE}" language="cs-CZ">${escapeXml(text)}</Say>${close}</Response>`,
+    `<?xml version="1.0" encoding="UTF-8"?><Response>${speak(text, voiceId)}${close}</Response>`,
     { headers: { 'Content-Type': 'text/xml; charset=utf-8' } },
   )
 }

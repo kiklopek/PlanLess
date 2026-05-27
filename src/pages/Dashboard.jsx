@@ -2032,6 +2032,7 @@ const SetAI = ({ user, companySettings, onSettingsSaved }) => {
   const [aiPaused, setAiPaused] = useState(() => companySettings?.ai_paused ?? false);
   const [confirmTemplate, setConfirmTemplate] = useState(() => companySettings?.sms_confirm_template ?? '');
   const [reminderTemplate, setReminderTemplate] = useState(() => companySettings?.sms_reminder_template ?? '');
+  const [elevenlabsVoiceId, setElevenlabsVoiceId] = useState(() => companySettings?.elevenlabs_voice_id ?? '');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -2044,6 +2045,7 @@ const SetAI = ({ user, companySettings, onSettingsSaved }) => {
     setAiPaused(companySettings.ai_paused ?? false);
     setConfirmTemplate(companySettings.sms_confirm_template ?? '');
     setReminderTemplate(companySettings.sms_reminder_template ?? '');
+    setElevenlabsVoiceId(companySettings.elevenlabs_voice_id ?? '');
   }, [companySettings]);
 
   const companyName = companySettings?.company_name || 'váš salon';
@@ -2052,7 +2054,7 @@ const SetAI = ({ user, companySettings, onSettingsSaved }) => {
     if (!user) return;
     setSaving(true);
     try {
-      const saved = await saveCompanySettings(user.id, { ...(companySettings ?? {}), ai_voice: voice, ai_tone: tone, ai_auto_book: autoBook, ai_confirm_sms: confirmSms, reminder_enabled: reminderEnabled, ai_paused: aiPaused, sms_confirm_template: confirmTemplate.trim() || null, sms_reminder_template: reminderTemplate.trim() || null });
+      const saved = await saveCompanySettings(user.id, { ...(companySettings ?? {}), ai_voice: voice, ai_tone: tone, ai_auto_book: autoBook, ai_confirm_sms: confirmSms, reminder_enabled: reminderEnabled, ai_paused: aiPaused, sms_confirm_template: confirmTemplate.trim() || null, sms_reminder_template: reminderTemplate.trim() || null, elevenlabs_voice_id: elevenlabsVoiceId.trim() || null });
       onSettingsSaved?.(saved);
       toast.success('Nastavení AI uloženo.');
     } catch (e) {
@@ -2091,6 +2093,31 @@ const SetAI = ({ user, companySettings, onSettingsSaved }) => {
               <div className="tgs">{v.tg.map((t) => <Tag key={t}>{t}</Tag>)}</div>
             </div>
           ))}
+        </div>
+      </div>
+
+      <div className="form-row">
+        <div>
+          <div className="lbl">ElevenLabs Voice ID</div>
+          <div className="desc">ID hlasu z ElevenLabs pro přirozený český hlas. Bez vyplnění se použije AWS Polly.</div>
+        </div>
+        <div className="col gap-2" style={{ maxWidth: 340 }}>
+          <input
+            value={elevenlabsVoiceId}
+            onChange={e => setElevenlabsVoiceId(e.target.value)}
+            placeholder="EXAVITQu4vr4xnSDxMaL"
+            className="field"
+            style={{ fontFamily: 'monospace', fontSize: 13 }}
+          />
+          <div className="muted" style={{ fontSize: 12 }}>
+            Najdi ho na <a href="https://elevenlabs.io/app/voice-library" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>elevenlabs.io/app/voice-library</a>. Doporučujeme hlas podporující češtinu (model Multilingual v2).
+          </div>
+          {elevenlabsVoiceId && (
+            <div className="card thin" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px' }}>
+              <I.Check size={14} style={{ color: 'var(--ok, #22c55e)', flexShrink: 0 }} />
+              <span style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>ElevenLabs hlas nastaven — Nikola bude mluvit přirozeně.</span>
+            </div>
+          )}
         </div>
       </div>
 

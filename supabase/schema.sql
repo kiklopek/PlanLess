@@ -310,3 +310,6 @@ CREATE POLICY IF NOT EXISTS "services_public_read" ON public.services
   FOR SELECT USING (true);
 CREATE POLICY IF NOT EXISTS "bookings_public_insert" ON public.bookings
   FOR INSERT WITH CHECK (true);
+
+-- ElevenLabs + OpenAI telephony
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS elevenlabs_voice_id text;

@@ -1,12 +1,12 @@
 /**
  * Twilio Gather Webhook — called after caller speaks.
- * Sends transcript to Claude with full context (services, availability, company info).
- * Handles booking confirmation with real slot verification, transfer, and info-only calls.
+ * Uses GPT-4o for reasoning, ElevenLabs for voice (Polly.Maja fallback).
+ * Smart context: shows AI the next available slots + customer's preferred booking time.
  */
 import { adminClient } from '../_shared/supabase.ts'
 import { getAvailableSlots, isWithinWorkingHours } from '../_shared/scheduling.ts'
 
-const CZECH_VOICE = 'Polly.Maja'
+const FALLBACK_VOICE = 'Polly.Maja'
 const MAX_TURNS = 8
 
 interface ConvState {
@@ -18,7 +18,7 @@ interface ConvState {
   callSid: string
 }
 
-interface ClaudeAction {
+interface AIAction {
   speak: string
   done: boolean
   booking?: {
@@ -47,16 +47,18 @@ Deno.serve(async (req) => {
       'lead_time_minutes', 'max_booking_horizon_days', 'default_buffer_minutes',
       'ai_auto_book', 'ai_confirm_sms', 'allow_unknown_service',
       'escalation_phone', 'twilio_phone_number', 'twilio_account_sid', 'twilio_auth_token',
+      'elevenlabs_voice_id',
     ].join(', '))
     .eq('twilio_phone_number', to)
     .maybeSingle()
 
   if (!settings) {
-    return twimlSay('Omlouváme se, tato linka není momentálně dostupná.')
+    return twimlSpeak('Omlouváme se, tato linka není momentálně dostupná.', null)
   }
 
   const { user_id: userId, company_name: companyName } = settings
   const tz = settings.timezone ?? 'Europe/Prague'
+  const voiceId = settings.elevenlabs_voice_id ?? null
 
   const { data: services } = await db
     .from('services')
@@ -85,17 +87,10 @@ Deno.serve(async (req) => {
 
   if (state.turns.filter(t => t.role === 'user').length > MAX_TURNS) {
     await finalizeCall(db, callSid, userId, from, state, 'Hovor ukončen — překročen limit otázek.')
-    return twimlSay('Zkuste prosím zavolat znovu nebo nás kontaktujte jinak. Nashledanou.', true)
+    return twimlSpeak('Zkuste prosím zavolat znovu nebo nás kontaktujte jinak. Nashledanou.', voiceId, true)
   }
 
-  // Build working hours summary for context
-  const whSummary = buildWorkingHoursSummary(settings.working_hours, tz)
-
-  const servicesText = (services ?? [])
-    .map(s => `- ${s.name} (${s.duration_min} min, ${s.price ?? '?'} Kč)`)
-    .join('\n') || 'Žádné služby momentálně k dispozici.'
-
-  // Customer memory: look up returning customer
+  // Customer memory: look up returning customer and booking history
   const { data: existingCustomer } = await db
     .from('customers')
     .select('id, name, notes, vip_status, last_visit_date')
@@ -109,7 +104,12 @@ Deno.serve(async (req) => {
     .eq('user_id', userId)
     .eq('customer_id', existingCustomer.id)
     .order('starts_at', { ascending: false })
-    .limit(3) : { data: null }
+    .limit(10) : { data: null }
+
+  // Detect customer's preferred time of day from booking history
+  const preferredTime = recentBookings?.length
+    ? getPreferredTimeOfDay(recentBookings.map((b: any) => b.starts_at), tz)
+    : null
 
   const customerMemory = existingCustomer ? (() => {
     const lines = [`Vracející se zákazník: ${existingCustomer.name || from}`]
@@ -117,11 +117,21 @@ Deno.serve(async (req) => {
     if (existingCustomer.notes) lines.push(`Poznámky o zákazníkovi: ${existingCustomer.notes}`)
     if (existingCustomer.last_visit_date) lines.push(`Poslední návštěva: ${existingCustomer.last_visit_date}`)
     if (recentBookings?.length) {
-      const svcNames = recentBookings.map(b => (b.services as { name: string } | null)?.name).filter(Boolean)
+      const svcNames = [...new Set(recentBookings.map((b: any) => (b.services as { name: string } | null)?.name).filter(Boolean))]
       if (svcNames.length) lines.push(`Oblíbené služby: ${svcNames.join(', ')}`)
     }
+    if (preferredTime) lines.push(`Preferovaný čas rezervací: ${preferredTime} — navrhni termín v tomto čase pokud je volno.`)
     return lines.join('\n')
   })() : null
+
+  // Proactive slot availability — fetch next available slots across 4 days
+  const slotsContext = await getUpcomingSlots(db, userId, services ?? [], settings, tz)
+
+  const servicesText = (services ?? [])
+    .map(s => `- ${s.name} (${s.duration_min} min, ${s.price ?? '?'} Kč)`)
+    .join('\n') || 'Žádné služby momentálně k dispozici.'
+
+  const whSummary = buildWorkingHoursSummary(settings.working_hours, tz)
 
   const extraContext = [
     settings.company_description ? `O nás: ${settings.company_description}` : null,
@@ -132,6 +142,7 @@ Deno.serve(async (req) => {
     `Rezervace možná max. ${settings.max_booking_horizon_days ?? 60} dní dopředu.`,
     settings.escalation_phone ? `Přepojení na recepci: k dispozici` : null,
     customerMemory,
+    slotsContext,
   ].filter(Boolean).join('\n')
 
   const systemPrompt = `Jsi Nikola, AI recepční pro ${companyName}. Mluvíš česky, přátelsky a stručně.
@@ -146,10 +157,11 @@ ${extraContext}
 Pravidla:
 - Max 2 věty na odpověď (telefonní hovor).
 - Zjisti: jméno zákazníka, požadovanou službu, preferovaný termín (den + čas).
-- Jakmile máš vše, navrhni reservaci — systém ověří dostupnost.
+- Aktivně nabídni konkrétní volné termíny ze seznamu výše — neřekej jen "co vám vyhovuje".
+- Jakmile zákazník potvrdí čas, použij done=true a vyplň booking.
 - Pokud se ptají na cenu/délku, řekni jim.
 - Nabídni přepojení (transfer: true) pokud to zákazník chce nebo nemůžeš pomoci.
-- Datum vždy uváděj jako ISO (YYYY-MM-DDTHH:MM:SS), berte v úvahu dnešní datum: ${new Date().toLocaleDateString('cs-CZ', { timeZone: tz })}.
+- Datum vždy uváděj jako ISO (YYYY-MM-DDTHH:MM:SS), dnešní datum: ${new Date().toLocaleDateString('cs-CZ', { timeZone: tz })}.
 
 Odpovídej VŽDY jako JSON:
 {
@@ -178,14 +190,11 @@ Při přepojení:
 
   const messages = state.turns.map(t => ({ role: t.role, content: t.content }))
 
-  let action: ClaudeAction = await callClaude(systemPrompt, messages)
+  let action: AIAction = await callOpenAI(systemPrompt, messages)
 
   // When booking proposed, verify slot availability
   if (action.done && action.booking && settings.ai_auto_book !== false) {
-    const svc = (services ?? []).find(s =>
-      s.name.toLowerCase().includes(action.booking!.service_name.toLowerCase()) ||
-      action.booking!.service_name.toLowerCase().includes(s.name.toLowerCase()),
-    ) ?? null
+    const svc = matchService(services ?? [], action.booking.service_name)
 
     const durationMin = svc?.duration_min ?? 60
     const bufferMin = svc?.buffer_after_min ?? settings.default_buffer_minutes ?? 0
@@ -204,41 +213,33 @@ Při přepojení:
       const exactMatch = slots.find(s => Math.abs(s.startsAt.getTime() - proposedMs) <= 15 * 60000)
 
       if (!exactMatch && slots.length > 0) {
-        // Slot not available — offer alternatives via second Claude call
         const altList = slots.slice(0, 3).map(s => s.display).join(', ')
         const injectedMsg = `[systém: navrhovaný čas (${proposedDate.toLocaleString('cs-CZ', { timeZone: tz })}) není volný. Nejbližší volné termíny: ${altList}. Nabídni zákazníkovi tyto alternativy.]`
         state.turns.push({ role: 'user', content: injectedMsg })
-        action = await callClaude(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })))
+        action = await callOpenAI(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })))
       } else if (slots.length === 0) {
         const injectedMsg = `[systém: v navrhovaném termínu ani v blízkém okolí není žádný volný čas. Informuj zákazníka a nabídni zavolání zpět nebo přepojení.]`
         state.turns.push({ role: 'user', content: injectedMsg })
-        action = await callClaude(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })))
+        action = await callOpenAI(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })))
       }
     }
   }
 
   state.turns.push({ role: 'assistant', content: action.speak })
 
-  // Update customer_name in calls table progressively
   const extractedName = action.booking?.customer_name ?? state.customerName
   if (extractedName && extractedName !== state.customerName) {
     state.customerName = extractedName
     await db.from('calls').update({ customer_name: extractedName }).eq('twilio_call_sid', callSid)
   }
 
-  // Handle transfer
   if (action.done && action.transfer && settings.escalation_phone) {
     await finalizeCall(db, callSid, userId, from, state, action.update_summary, extractedName)
-    return twimlTransfer(action.speak, settings.escalation_phone)
+    return twimlTransfer(action.speak, settings.escalation_phone, voiceId)
   }
 
-  // Confirm and create booking
   if (action.done && action.booking) {
-    const svc = (services ?? []).find(s =>
-      s.name.toLowerCase().includes(action.booking!.service_name.toLowerCase()) ||
-      action.booking!.service_name.toLowerCase().includes(s.name.toLowerCase()),
-    ) ?? null
-
+    const svc = matchService(services ?? [], action.booking.service_name)
     const startsAt = new Date(action.booking.preferred_date)
     const endsAt = new Date(startsAt.getTime() + (svc?.duration_min ?? 60) * 60000)
 
@@ -264,45 +265,19 @@ Při přepojení:
       bookingId = bk?.id ?? null
     }
 
-    // SMS confirmations (fire-and-forget)
     if (settings.ai_confirm_sms !== false && settings.twilio_account_sid && settings.twilio_auth_token) {
-      const twilioBase = `https://api.twilio.com/2010-04-01/Accounts/${settings.twilio_account_sid}/Messages.json`
-      const auth = `Basic ${btoa(`${settings.twilio_account_sid}:${settings.twilio_auth_token}`)}`
-      const dateLabel = new Date(action.booking.preferred_date).toLocaleString('cs-CZ', {
-        timeZone: tz, day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
-      })
-
-      fetch(twilioBase, {
-        method: 'POST',
-        headers: { Authorization: auth, 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          To: from, From: settings.twilio_phone_number,
-          Body: `Potvrzení rezervace: ${action.booking.service_name}, ${dateLabel}. Těšíme se na vás! — ${companyName}`,
-        }).toString(),
-      }).catch(() => {})
-
-      if (settings.escalation_phone) {
-        fetch(twilioBase, {
-          method: 'POST',
-          headers: { Authorization: auth, 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            To: settings.escalation_phone, From: settings.twilio_phone_number,
-            Body: `Nikola zarezervovala: ${action.booking.service_name}, ${dateLabel}. Zákazník: ${action.booking.customer_name || from}`,
-          }).toString(),
-        }).catch(() => {})
-      }
+      sendSmsConfirmations(settings, from, action.booking, tz)
     }
 
     await finalizeCall(db, callSid, userId, from, state, action.update_summary, action.booking.customer_name, bookingId)
-    return twimlSay(action.speak, true)
+    return twimlSpeak(action.speak, voiceId, true)
   }
 
   if (action.done) {
     await finalizeCall(db, callSid, userId, from, state, action.update_summary, extractedName)
-    return twimlSay(action.speak, true)
+    return twimlSpeak(action.speak, voiceId, true)
   }
 
-  // Save updated state and ask for next input
   await db.from('calls')
     .update({ conversation_state: state, customer_name: extractedName ?? null })
     .eq('twilio_call_sid', callSid)
@@ -313,15 +288,50 @@ Při přepojení:
   <Gather input="speech" action="${gatherUrl}" method="POST"
           timeout="5" speechTimeout="auto" language="cs-CZ"
           actionOnEmptyResult="true">
-    <Say voice="${CZECH_VOICE}" language="cs-CZ">${escapeXml(action.speak)}</Say>
+    ${speak(action.speak, voiceId)}
   </Gather>
-  <Say voice="${CZECH_VOICE}" language="cs-CZ">Promiňte, neslyšela jsem vás.</Say>
+  ${speak('Promiňte, neslyšela jsem vás.', voiceId)}
 </Response>`
 
   return new Response(twiml, { headers: { 'Content-Type': 'text/xml; charset=utf-8' } })
 })
 
-async function callClaude(systemPrompt: string, messages: Array<{ role: string; content: string }>): Promise<ClaudeAction> {
+// ─── AI ─────────────────────────────────────────────────────────────────────
+
+async function callOpenAI(systemPrompt: string, messages: Array<{ role: string; content: string }>): Promise<AIAction> {
+  const apiKey = Deno.env.get('OPENAI_API_KEY') ?? ''
+  if (!apiKey) {
+    // Fallback to Claude if OpenAI key not configured
+    return callClaude(systemPrompt, messages)
+  }
+  try {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        max_tokens: 400,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...messages,
+        ],
+      }),
+    })
+    const body = await resp.json()
+    if (!resp.ok) throw new Error(body.error?.message ?? 'OpenAI error')
+    const raw = body.choices?.[0]?.message?.content ?? '{}'
+    return JSON.parse(raw)
+  } catch (err) {
+    console.error('OpenAI error:', err)
+    return { speak: 'Omlouváme se, momentálně mám technické potíže. Zavolejte prosím znovu.', done: true }
+  }
+}
+
+async function callClaude(systemPrompt: string, messages: Array<{ role: string; content: string }>): Promise<AIAction> {
   try {
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -345,6 +355,70 @@ async function callClaude(systemPrompt: string, messages: Array<{ role: string; 
   }
 }
 
+// ─── Smart context ────────────────────────────────────────────────────────────
+
+/** Analyse past booking start times and return the customer's preferred time of day in Czech */
+function getPreferredTimeOfDay(startsAtList: string[], tz: string): string | null {
+  if (!startsAtList.length) return null
+  const hours = startsAtList.map(s => {
+    const d = new Date(s)
+    return parseInt(d.toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: tz }), 10)
+  })
+  const avg = hours.reduce((a, b) => a + b, 0) / hours.length
+  if (avg < 11) return 'dopoledne'
+  if (avg < 14) return 'okolo poledne'
+  if (avg < 17) return 'odpoledne'
+  return 'pozdě odpoledne nebo večer'
+}
+
+/** Fetch next available slots across the next 4 days and format for the AI prompt */
+async function getUpcomingSlots(
+  db: any,
+  userId: string,
+  services: any[],
+  settings: any,
+  tz: string,
+): Promise<string> {
+  try {
+    const durationMin = services[0]?.duration_min ?? 60
+    const bufferMin = settings.default_buffer_minutes ?? 0
+    const today = new Date()
+    const lines: string[] = []
+
+    for (let offset = 0; offset < 5 && lines.length < 4; offset++) {
+      const day = new Date(today.getTime() + offset * 86400000)
+      const slots = await getAvailableSlots(
+        db, userId, durationMin, bufferMin, day, tz,
+        settings.working_hours ?? {},
+        settings.lead_time_minutes ?? 120,
+        settings.max_booking_horizon_days ?? 60,
+        6,
+      )
+      if (!slots.length) continue
+      const dayLabel = day.toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'long', timeZone: tz })
+      const times = slots.slice(0, 5).map(s =>
+        s.startsAt.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit', timeZone: tz }),
+      )
+      lines.push(`${dayLabel}: ${times.join(', ')}`)
+    }
+
+    return lines.length
+      ? `Aktuálně volné termíny (nabídni je zákazníkovi aktivně):\n${lines.join('\n')}`
+      : 'Momentálně nejsou volné termíny v nejbližší době.'
+  } catch {
+    return ''
+  }
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function matchService(services: any[], name: string) {
+  const n = name.toLowerCase()
+  return services.find(s =>
+    s.name.toLowerCase().includes(n) || n.includes(s.name.toLowerCase()),
+  ) ?? null
+}
+
 function buildWorkingHoursSummary(
   wh: Record<string, Array<{ start: string; end: string }>> | null,
   _tz: string,
@@ -356,6 +430,35 @@ function buildWorkingHoursSummary(
     if (!slots?.length) return null
     return `${label} ${slots[0].start}–${slots[0].end}`
   }).filter(Boolean).join(', ') || 'viz web'
+}
+
+function sendSmsConfirmations(settings: any, from: string, booking: AIAction['booking']!, tz: string) {
+  if (!settings.twilio_account_sid || !settings.twilio_auth_token) return
+  const twilioBase = `https://api.twilio.com/2010-04-01/Accounts/${settings.twilio_account_sid}/Messages.json`
+  const auth = `Basic ${btoa(`${settings.twilio_account_sid}:${settings.twilio_auth_token}`)}`
+  const dateLabel = new Date(booking.preferred_date).toLocaleString('cs-CZ', {
+    timeZone: tz, day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+  })
+
+  fetch(twilioBase, {
+    method: 'POST',
+    headers: { Authorization: auth, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      To: from, From: settings.twilio_phone_number,
+      Body: `Potvrzení rezervace: ${booking.service_name}, ${dateLabel}. Těšíme se na vás! — ${settings.company_name}`,
+    }).toString(),
+  }).catch(() => {})
+
+  if (settings.escalation_phone) {
+    fetch(twilioBase, {
+      method: 'POST',
+      headers: { Authorization: auth, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        To: settings.escalation_phone, From: settings.twilio_phone_number,
+        Body: `Nikola zarezervovala: ${booking.service_name}, ${dateLabel}. Zákazník: ${booking.customer_name || from}`,
+      }).toString(),
+    }).catch(() => {})
+  }
 }
 
 async function finalizeCall(
@@ -384,7 +487,6 @@ async function finalizeCall(
     conversation_state: null,
   }).eq('twilio_call_sid', callSid)
 
-  // Auto-update customer notes with AI summary (append, don't overwrite)
   if (summary && phone) {
     const { data: cust } = await db.from('customers').select('id, notes').eq('user_id', userId).eq('phone', phone).maybeSingle()
     if (cust) {
@@ -396,17 +498,27 @@ async function finalizeCall(
   }
 }
 
-function twimlSay(text: string, hangup = false) {
+// ─── TwiML ───────────────────────────────────────────────────────────────────
+
+function speak(text: string, voiceId: string | null): string {
+  if (voiceId) {
+    const url = `${Deno.env.get('SUPABASE_URL')}/functions/v1/tts?t=${encodeURIComponent(text)}&v=${encodeURIComponent(voiceId)}`
+    return `<Play>${escapeXml(url)}</Play>`
+  }
+  return `<Say voice="${FALLBACK_VOICE}" language="cs-CZ">${escapeXml(text)}</Say>`
+}
+
+function twimlSpeak(text: string, voiceId: string | null, hangup = false) {
   const close = hangup ? '<Hangup/>' : ''
   return new Response(
-    `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="${CZECH_VOICE}" language="cs-CZ">${escapeXml(text)}</Say>${close}</Response>`,
+    `<?xml version="1.0" encoding="UTF-8"?><Response>${speak(text, voiceId)}${close}</Response>`,
     { headers: { 'Content-Type': 'text/xml; charset=utf-8' } },
   )
 }
 
-function twimlTransfer(speak: string, dialNumber: string) {
+function twimlTransfer(speakText: string, dialNumber: string, voiceId: string | null) {
   return new Response(
-    `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="${CZECH_VOICE}" language="cs-CZ">${escapeXml(speak)}</Say><Dial>${escapeXml(dialNumber)}</Dial></Response>`,
+    `<?xml version="1.0" encoding="UTF-8"?><Response>${speak(speakText, voiceId)}<Dial>${escapeXml(dialNumber)}</Dial></Response>`,
     { headers: { 'Content-Type': 'text/xml; charset=utf-8' } },
   )
 }
