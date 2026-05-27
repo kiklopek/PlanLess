@@ -8,6 +8,7 @@ import { fetchStaff, createStaff, updateStaff, deleteStaff, clearCachedStaff } f
 import { fetchCustomers, upsertCustomer, deleteCustomerByPhone, fetchCustomerStats } from '../lib/customersDb.js';
 import { fetchServices, createService, updateService, deleteService } from '../lib/servicesDb.js';
 import { fetchBookings, createBooking, deleteBooking, clearCachedBookings } from '../lib/bookingsDb.js';
+import { fetchBlocks, createBlock, deleteBlock, clearCachedBlocks } from '../lib/blocksDb.js';
 import { createFollowup } from '../lib/followupsDb.js';
 import { getCompanySettings, saveCompanySettings } from '../lib/companySettings.js';
 import { supabase } from '../lib/supabase.js';
@@ -22,6 +23,7 @@ let CLIENTS = [];
 let SERVICES = [];
 let EVENTS = [];
 let STAFF = [];
+let BLOCKS = [];
 
 /* ── Week helpers ── */
 const CZ_DAYS = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
