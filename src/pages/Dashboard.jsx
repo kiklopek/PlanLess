@@ -1749,9 +1749,120 @@ const SetBilling = () => {
   );
 };
 
+const SetCompany = ({ user, companySettings, onSettingsSaved }) => {
+  const [form, setForm] = useState({
+    company_name:  companySettings?.company_name  ?? '',
+    public_phone:  companySettings?.public_phone  ?? '',
+    public_email:  companySettings?.public_email  ?? '',
+    website_url:   companySettings?.website_url   ?? '',
+    address_line1: companySettings?.address_line1 ?? '',
+    city:          companySettings?.city          ?? '',
+    postal_code:   companySettings?.postal_code   ?? '',
+  });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!companySettings) return;
+    setForm({
+      company_name:  companySettings.company_name  ?? '',
+      public_phone:  companySettings.public_phone  ?? '',
+      public_email:  companySettings.public_email  ?? '',
+      website_url:   companySettings.website_url   ?? '',
+      address_line1: companySettings.address_line1 ?? '',
+      city:          companySettings.city          ?? '',
+      postal_code:   companySettings.postal_code   ?? '',
+    });
+  }, [companySettings]);
+
+  const f = (key) => (e) => setForm(p => ({ ...p, [key]: e.target.value }));
+  const save = async () => {
+    if (!form.company_name.trim()) { toast.error('Zadejte název firmy.'); return; }
+    setSaving(true);
+    try {
+      const saved = await saveCompanySettings(user.id, { ...(companySettings ?? {}), ...form });
+      onSettingsSaved?.(saved);
+      toast.success('Profil firmy uložen.');
+    } catch (e) {
+      toast.error(e.message || 'Chyba při ukládání.');
+    } finally {
+      setSaving(false);
+    }
+  };
+  const inputStyle = { background: 'transparent', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink)', width: '100%' };
+
+  return (
+    <div className="card lg">
+      <div className="eyebrow">Firma</div>
+      <div className="h-section" style={{ marginTop: 8, marginBottom: 22, fontSize: 22 }}>
+        Profil <span className="serif-it" style={{ color: 'var(--accent)' }}>vaší firmy</span>
+      </div>
+      <div className="form-row">
+        <div>
+          <div className="lbl">Název firmy</div>
+          <div className="desc">Nikola toto jméno používá při představování zákazníkům po telefonu.</div>
+        </div>
+        <div className="field" style={{ padding: '8px 12px' }}>
+          <input placeholder="Salon Krása s.r.o." value={form.company_name} onChange={f('company_name')} style={inputStyle} autoFocus />
+        </div>
+      </div>
+      <div className="form-row">
+        <div>
+          <div className="lbl">Telefonní číslo</div>
+          <div className="desc">Veřejné číslo zobrazené zákazníkům.</div>
+        </div>
+        <div className="field" style={{ padding: '8px 12px' }}>
+          <input type="tel" placeholder="+420 111 222 333" value={form.public_phone} onChange={f('public_phone')} style={inputStyle} />
+        </div>
+      </div>
+      <div className="form-row">
+        <div>
+          <div className="lbl">E-mail</div>
+          <div className="desc">Kontaktní e-mail pro zákazníky a notifikace.</div>
+        </div>
+        <div className="field" style={{ padding: '8px 12px' }}>
+          <input type="email" placeholder="info@salon.cz" value={form.public_email} onChange={f('public_email')} style={inputStyle} />
+        </div>
+      </div>
+      <div className="form-row">
+        <div>
+          <div className="lbl">Webová stránka</div>
+          <div className="desc">URL vašeho webu nebo sociálních sítí.</div>
+        </div>
+        <div className="field" style={{ padding: '8px 12px' }}>
+          <input type="url" placeholder="https://salon.cz" value={form.website_url} onChange={f('website_url')} style={inputStyle} />
+        </div>
+      </div>
+      <div className="form-row">
+        <div>
+          <div className="lbl">Adresa</div>
+          <div className="desc">Kde zákazníci salon najdou — Nikola ji sdělí při rezervaci.</div>
+        </div>
+        <div className="col gap-2" style={{ flex: 1 }}>
+          <div className="field" style={{ padding: '8px 12px' }}>
+            <input placeholder="Ulice a číslo popisné" value={form.address_line1} onChange={f('address_line1')} style={inputStyle} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 8 }}>
+            <div className="field" style={{ padding: '8px 12px' }}>
+              <input placeholder="Město" value={form.city} onChange={f('city')} style={inputStyle} />
+            </div>
+            <div className="field" style={{ padding: '8px 12px' }}>
+              <input placeholder="PSČ" value={form.postal_code} onChange={f('postal_code')} style={inputStyle} />
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="form-row">
+        <div style={{ marginTop: 8 }}>
+          <Btn variant="accent" size="sm" onClick={save} disabled={saving}>{saving ? 'Ukládám…' : 'Uložit profil'}</Btn>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const SettingsView = () => {
   const { user } = useAuth();
-  const [tab, setTab] = useState('ai');
+  const [tab, setTab] = useState('company');
   const [companySettings, setCompanySettings] = useState(null);
 
   useEffect(() => {
@@ -1760,6 +1871,7 @@ const SettingsView = () => {
   }, [user]);
 
   const tabs = [
+    { id: 'company',       label: 'Firma',          icon: I.Globe      },
     { id: 'ai',           label: 'AI recepční',    icon: I.Brain      },
     { id: 'hours',        label: 'Otevírací doba', icon: I.Clock      },
     { id: 'rules',        label: 'Pravidla',       icon: I.Sparkle    },
@@ -1780,6 +1892,7 @@ const SettingsView = () => {
         })}
       </nav>
       <div>
+        {tab === 'company'      && <SetCompany user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
         {tab === 'ai'           && <SetAI user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
         {tab === 'hours'        && <SetHours user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
         {tab === 'rules'        && <SetRules user={user} companySettings={companySettings} onSettingsSaved={setCompanySettings} />}
@@ -1841,6 +1954,75 @@ const TweaksPanel = ({ active, values, onChange }) => {
           onChange={(v) => onChange({ density: v })}
         />
       </div>
+    </div>
+  );
+};
+
+/* ============================================================
+   Global search
+   ============================================================ */
+const GlobalSearch = ({ searchRef, onNavigate, setCallSel }) => {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => { if (!wrapRef.current?.contains(e.target)) setOpen(false); };
+    window.addEventListener('mousedown', handler);
+    return () => window.removeEventListener('mousedown', handler);
+  }, []);
+
+  const q = query.toLowerCase().trim();
+  const results = q ? [
+    ...CALLS.filter(c => c.who?.toLowerCase().includes(q) || c.phone?.includes(q) || c.summary?.toLowerCase().includes(q))
+      .slice(0, 3).map(c => ({ type: 'call', id: c.id, label: c.who, sub: c.status === 'missed' ? 'Zmeškaný hovor' : 'Hovor', Icon: I.Phone, action: () => { setCallSel(c.id); onNavigate('inbox'); } })),
+    ...CLIENTS.filter(c => c.name?.toLowerCase().includes(q) || c.phone?.includes(q))
+      .slice(0, 3).map(c => ({ type: 'client', id: c.id, label: c.name, sub: c.phone, Icon: I.Users, action: () => onNavigate('clients') })),
+    ...SERVICES.filter(s => s.name?.toLowerCase().includes(q))
+      .slice(0, 3).map(s => ({ type: 'service', id: s.id, label: s.name, sub: `${s.d} min${s.p != null ? ` · ${fmtPrice(s.p)}` : ''}`, Icon: I.Scissors, action: () => onNavigate('services') })),
+  ] : [];
+
+  const ddStyle = { position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 200, boxShadow: '0 8px 32px rgba(0,0,0,0.4)' };
+  const rowBase = { display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '8px 14px', background: 'none', border: 'none', color: 'var(--ink)', cursor: 'pointer', textAlign: 'left' };
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', width: 280, maxWidth: '40vw' }}>
+      <div className="field">
+        <I.Search />
+        <input
+          ref={searchRef}
+          placeholder="Hledat klienta, službu, číslo…"
+          value={query}
+          onChange={e => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+        />
+        {query
+          ? <button onClick={() => { setQuery(''); setOpen(false); }} style={{ background: 'none', border: 'none', color: 'var(--ink-3)', cursor: 'pointer', padding: '0 2px', display: 'flex' }}><I.X s={14} /></button>
+          : <span className="kbd">⌘K</span>}
+      </div>
+      {open && results.length > 0 && (
+        <div className="card" style={ddStyle}>
+          {results.map((r) => {
+            const Ico = r.Icon;
+            return (
+              <button key={r.type + r.id} style={rowBase} onClick={() => { r.action(); setQuery(''); setOpen(false); }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                <Ico s={14} style={{ color: 'var(--ink-3)', flexShrink: 0 }} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>{r.sub}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {open && q && results.length === 0 && (
+        <div className="card" style={{ ...ddStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>Žádné výsledky pro „{q}".</div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1956,11 +2138,7 @@ export default function Dashboard() {
   const m = getViewMeta(nav);
 
   const right = (
-    <div className="field" style={{ width: 280, maxWidth: '40vw' }}>
-      {loading ? <I.Clock s={14} style={{ opacity: 0.4 }} /> : <I.Search />}
-      <input ref={searchRef} placeholder="Hledat klienta, službu, číslo…" />
-      <span className="kbd">⌘K</span>
-    </div>
+    <GlobalSearch searchRef={searchRef} onNavigate={setNav} setCallSel={setCallSel} />
   );
 
   return (
