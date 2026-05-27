@@ -396,7 +396,7 @@ const TodayView = ({ setNav, setCallSel, onNavCalendar, onRefresh }) => {
           <div className="live-card">
             <div className="hd">
               <div style={{ position: 'relative' }}>
-                <Avatar ini="KS" size="md" vip />
+                <Avatar ini={getInitials(liveCall.who)} size="md" vip={liveCall.vip} />
                 <div className="pulse" style={{ position: 'absolute', inset: -3, pointerEvents: 'none' }} />
               </div>
               <div style={{ flex: 1 }}>
@@ -1904,7 +1904,7 @@ const ServicesView = ({ onRefresh }) => {
                 </td>
                 <td className="num muted">{s.d} min</td>
                 <td className="num" style={{ fontWeight: 500 }}>{s.p != null ? fmtPrice(s.p) : '—'}</td>
-                <td className="num muted">{EVENTS.filter(e => e.service_id === s.id).length}</td>
+                <td className="num muted">{svcBookingCount[s.id] ?? 0}</td>
                 <td>
                   {s.on
                     ? <Tag variant="live"><span className="d" />Aktivní</Tag>
