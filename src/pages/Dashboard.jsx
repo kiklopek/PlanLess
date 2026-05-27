@@ -125,12 +125,13 @@ function mapCallRow(r) {
     status: r.status,
     live: isLive,
     sub: isLive ? (lastAiTurn?.content || 'Nikola vyřizuje hovor…') : (r.summary || ''),
-    summary: r.transcript_full || r.summary || '',
+    summary: r.summary || '',
     transcript: turns,
     tags: [r.status].filter(Boolean),
     vip: false,
     created_at: r.created_at,
     recording_url: r.recording_url || null,
+    service_id: r.service_id ?? null,
     outcome: {
       kind: (r.status === 'booked' || r.status === 'resched') ? 'booking' : r.status,
       label: r.status === 'booked' ? 'Rezervace vytvořena' : r.status === 'resched' ? 'Termín přesunut' : r.status === 'missed' ? 'Zmeškaný hovor' : isLive ? 'Probíhá hovor' : 'Dotaz zákazníka',
@@ -566,7 +567,7 @@ const CallDetail = ({ call, onBookingCreated, onNavCalendar }) => {
   const [smsSending, setSmsSending] = useState(false);
 
   useEffect(() => {
-    setSelectedServiceId('');
+    setSelectedServiceId(call?.service_id || '');
     setBookNote('');
     setSmsModal(false);
   }, [call?.id]);
@@ -684,13 +685,41 @@ const CallDetail = ({ call, onBookingCreated, onNavCalendar }) => {
       </div>
 
       <div className="detail-body">
-        <div style={{ marginBottom: 28 }}>
-          <div className="eyebrow" style={{ marginBottom: 14 }}>Nikolino shrnutí</div>
-          <div style={{ fontSize: 14.5, lineHeight: 1.65, color: 'var(--ink)' }}>{call.summary}</div>
-          <div className="row gap-2" style={{ marginTop: 14, flexWrap: 'wrap' }}>
-            {call.tags.map((t) => <Tag key={t}>#{t}</Tag>)}
-          </div>
-        </div>
+        {call.summary && (() => {
+          const bullets = (() => {
+            const lines = call.summary.split('\n').map(l => l.replace(/^[-•]\s*/, '').trim()).filter(Boolean);
+            if (lines.length > 1) return lines;
+            const parts = [];
+            let cur = '';
+            const txt = call.summary;
+            for (let i = 0; i < txt.length; i++) {
+              cur += txt[i];
+              if (txt[i] === '.' && i + 2 < txt.length && txt[i+1] === ' ' && /[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ]/.test(txt[i+2])) {
+                parts.push(cur.trim());
+                cur = '';
+                i++;
+              }
+            }
+            if (cur.trim()) parts.push(cur.trim());
+            return parts.length > 1 ? parts : [txt];
+          })();
+          return (
+            <div style={{ marginBottom: 28 }}>
+              <div className="eyebrow" style={{ marginBottom: 14 }}>Nikolino shrnutí</div>
+              <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {bullets.map((b, i) => (
+                  <li key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 14, lineHeight: 1.6, color: 'var(--ink)' }}>
+                    <span style={{ color: 'var(--accent)', fontSize: 16, lineHeight: 1.4, flexShrink: 0 }}>·</span>
+                    <span>{b.replace(/\.$/, '')}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="row gap-2" style={{ marginTop: 14, flexWrap: 'wrap' }}>
+                {call.tags.map((t) => <Tag key={t}>#{t}</Tag>)}
+              </div>
+            </div>
+          );
+        })()}
 
         {(o.service || o.when) && (
           <div style={{ marginBottom: 28 }}>
