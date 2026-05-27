@@ -48,6 +48,7 @@ export const Icons = {
   Dumbbell:  (p) => <Ic {...p}><path d="M6.5 6.5l11 11"/><path d="M21 21l-1-1"/><path d="M3 3l1 1"/><path d="M18 22l4-4"/><path d="M2 6l4-4"/><path d="M3 10l7-7"/><path d="M14 21l7-7"/></Ic>,
   LogOut:    (p) => <Ic {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></Ic>,
   Sparkle:   (p) => <Ic {...p}><path d="M12 2l1.8 5.7L19.5 9l-5.7 1.8L12 16.5l-1.8-5.7L4.5 9l5.7-1.8z"/><path d="M5 3l.9 2.8L8.7 7l-2.8.9L5 10.7l-.9-2.8L1.3 7l2.8-.9z"/><path d="M19 14l.9 2.8 2.8.9-2.8.9-.9 2.8-.9-2.8-2.8-.9 2.8-.9z"/></Ic>,
+  Lock:      (p) => <Ic {...p}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></Ic>,
 };
 
 export const Wave = ({ stable = false, size = 14 }) => (
