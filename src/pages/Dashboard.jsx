@@ -1788,10 +1788,10 @@ const SetCompany = ({ user, companySettings, onSettingsSaved }) => {
         setForm(p => ({ ...p, company_description: text.trim() }));
         toast.success('Textový soubor načten.');
       } else if (file.name.endsWith('.docx')) {
-        const mammoth = (await import('mammoth')).default;
         const buf = await file.arrayBuffer();
-        const { value } = await mammoth.extractRawText({ arrayBuffer: buf });
-        setForm(p => ({ ...p, company_description: value.trim() }));
+        const { extractDocxText } = await import('../lib/docxReader.js');
+        const text = await extractDocxText(buf);
+        setForm(p => ({ ...p, company_description: text.trim() }));
         toast.success('Dokument načten a text extrahován.');
       } else {
         toast.error('Podporované formáty: .txt, .docx');
