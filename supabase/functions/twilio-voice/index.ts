@@ -51,28 +51,29 @@ Deno.serve(async (req) => {
     }
   }
 
-  // Pre-create call record so twilio-realtime can find it quickly
+  // Pre-create call record
   if (settings?.user_id) {
     await db.from('calls').insert({
       user_id:         settings.user_id,
       customer_phone:  from,
       twilio_call_sid: callSid,
       status:          'live',
-    }).select('id').maybeSingle()   // ignore conflict if already exists
+    }).select('id').maybeSingle()
   }
 
-  // WebSocket URL for twilio-realtime (https → wss)
+  // Route to gather (gpt-4o HTTP polling — works on all OpenAI accounts)
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-  const wsUrl = supabaseUrl.replace('https://', 'wss://') + '/functions/v1/twilio-realtime'
+  const gatherUrl = supabaseUrl + '/functions/v1/twilio-gather'
+  const greeting = settings?.ai_greeting ?? `Dobrý den, vítejte v ${company}. Čím vám mohu pomoci?`
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Connect>
-    <Stream url="${esc(wsUrl)}">
-      <Parameter name="from" value="${esc(from)}"/>
-      <Parameter name="to" value="${esc(to)}"/>
-    </Stream>
-  </Connect>
+  <Gather input="speech" action="${esc(gatherUrl)}" method="POST"
+          timeout="5" speechTimeout="auto" language="cs-CZ"
+          actionOnEmptyResult="true">
+    <Say voice="Polly.Maja" language="cs-CZ">${esc(greeting)}</Say>
+  </Gather>
+  <Say voice="Polly.Maja" language="cs-CZ">Promiňte, neslyšela jsem vás. Zavolejte nám prosím znovu.</Say>
 </Response>`
 
   return new Response(twiml, { headers: { 'Content-Type': 'text/xml; charset=utf-8' } })
