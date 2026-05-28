@@ -347,7 +347,7 @@ const Dock = ({ title, crumb, right, aiOn, onToggleAi }) => (
 /* ============================================================
    Today view
    ============================================================ */
-const TodayView = ({ setNav, setCallSel, onNavCalendar, onRefresh, aiOn, companySettings, onSendReminder }) => {
+const TodayView = ({ setNav, setCallSel, onNavCalendar, onRefresh, aiOn, companySettings, onSendReminder, bookingsTruncated }) => {
   const week = getCurrentWeek();
   const [menuId, setMenuId] = useState(null);
   const [remindedIds, setRemindedIds] = useState(new Set());
@@ -374,6 +374,14 @@ const TodayView = ({ setNav, setCallSel, onNavCalendar, onRefresh, aiOn, company
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13.5, fontWeight: 600, color: '#fbbf24' }}>AI recepční je pozastavena</div>
             <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 2 }}>Nikola momentálně nepřijímá hovory. Zapněte ji v hlavičce přes přepínač.</div>
+          </div>
+        </div>
+      )}
+      {bookingsTruncated && (
+        <div style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 12, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <I.BarChart s={15} style={{ color: '#818cf8', flexShrink: 0 }} />
+          <div style={{ flex: 1, fontSize: 13, color: 'var(--ink-2)' }}>
+            Zobrazeno prvních 500 rezervací. Pro kompletní přehled přejděte do <button onClick={() => setNav('analytics')} style={{ background: 'none', border: 'none', color: '#818cf8', cursor: 'pointer', padding: 0, fontFamily: 'inherit', fontSize: 13, fontWeight: 500 }}>Analytiky</button>.
           </div>
         </div>
       )}
@@ -1122,7 +1130,7 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
   const [blockModal, setBlockModal] = useState(false);
   const [selEvent, setSelEvent] = useState(null);
   const [selBlock, setSelBlock] = useState(null);
-  const [bForm, setBForm] = useState({ date: '', time: '09:00', serviceId: '', staffId: '', note: '' });
+  const [bForm, setBForm] = useState({ date: '', time: '09:00', serviceId: '', staffId: '', customerId: '', note: '' });
   const [blForm, setBlForm] = useState({ date: '', timeFrom: '09:00', timeTo: '17:00', reason: '' });
   const [bSaving, setBSaving] = useState(false);
   const [blSaving, setBlSaving] = useState(false);
@@ -1131,7 +1139,7 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
   useEffect(() => {
     if (prefillClient) {
       const today = new Date().toISOString().slice(0, 10);
-      setBForm(f => ({ ...f, date: today, note: prefillClient.note || prefillClient.name || '' }));
+      setBForm(f => ({ ...f, date: today, customerId: prefillClient.id || '', note: prefillClient.note || prefillClient.name || '' }));
       setBookingModal(true);
       onPrefillUsed?.();
     }
@@ -1170,7 +1178,7 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
 
   const openBooking = (date, time) => {
     const today = date ?? new Date().toISOString().slice(0, 10);
-    setBForm({ date: today, time: time ?? '09:00', serviceId: SERVICES[0]?.id ?? '', staffId: '', note: '' });
+    setBForm({ date: today, time: time ?? '09:00', serviceId: SERVICES[0]?.id ?? '', staffId: '', customerId: '', note: '' });
     setOutsideHoursWarn(null);
     setBookingModal(true);
     setBlockModal(false);
@@ -1258,7 +1266,7 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
 
     setBSaving(true);
     try {
-      const newBooking = await createBooking({ user_id: user.id, service_id: bForm.serviceId, staff_id: assignedStaffId, starts_at: starts.toISOString(), ends_at: ends.toISOString(), note: bForm.note });
+      const newBooking = await createBooking({ user_id: user.id, service_id: bForm.serviceId, staff_id: assignedStaffId, customer_id: bForm.customerId || null, starts_at: starts.toISOString(), ends_at: ends.toISOString(), note: bForm.note });
       toast.success('Rezervace vytvořena.');
       setBookingModal(false);
       setAnchor(starts);
@@ -1267,6 +1275,19 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
       if (WEBHOOK_URL) {
         const service = SERVICES.find(s => s.id === bForm.serviceId);
         fetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: 'booking.created', booking_id: newBooking.id, service: service?.name, starts_at: starts.toISOString() }) }).catch(() => {});
+      }
+      // SMS confirmation to customer (fire-and-forget)
+      const customer = bForm.customerId ? CLIENTS.find(c => c.id === bForm.customerId) : null;
+      if (customer?.phone && mainSettings?.ai_confirm_sms !== false) {
+        const svc = SERVICES.find(s => s.id === bForm.serviceId);
+        const dateLabel = starts.toLocaleString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+        const companyPart = mainSettings?.company_name ? ` — ${mainSettings.company_name}` : '';
+        createFollowup({
+          customer_id: customer.id,
+          channel: 'sms',
+          message: `Potvrzení rezervace: ${svc?.name || 'služba'} ${dateLabel}. Těšíme se!${companyPart}`,
+          metadata: { to: customer.phone, booking_id: newBooking.id, type: 'confirm' },
+        }).catch(() => {});
       }
     } catch (e) {
       toast.error(e.message || 'Chyba při ukládání.');
@@ -1332,6 +1353,15 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
                 <select value={bForm.serviceId} onChange={e => { setBForm(f => ({ ...f, serviceId: e.target.value })); setOutsideHoursWarn(null); }} style={{ ...inputStyle }}>
                   <option value="">— vyberte —</option>
                   {SERVICES.map(s => <option key={s.id} value={s.id}>{s.name} ({s.d} min)</option>)}
+                </select>
+              </div>
+            </label>
+            <label className="col gap-2" style={{ gridColumn: '1 / -1' }}>
+              <span className="lbl">Zákazník (volitelný)</span>
+              <div className="field" style={{ padding: '8px 12px' }}>
+                <select value={bForm.customerId} onChange={e => setBForm(f => ({ ...f, customerId: e.target.value }))} style={{ ...inputStyle }}>
+                  <option value="">— bez zákazníka —</option>
+                  {CLIENTS.map(c => <option key={c.id} value={c.id}>{c.name || c.phone}{c.name && c.phone ? ` (${c.phone})` : ''}</option>)}
                 </select>
               </div>
             </label>
@@ -3935,6 +3965,7 @@ export default function Dashboard() {
   const [calPrefill, setCalPrefill] = useState(null);
   const [dataVersion, setDataVersion] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [bookingsTruncated, setBookingsTruncated] = useState(false);
   const searchRef = useRef(null);
 
   useEffect(() => {
@@ -3971,7 +4002,7 @@ export default function Dashboard() {
       fetchCalls().then(rows => { CALLS = rows.map(mapCallRow); }),
       fetchCustomers().then(rows => { CLIENTS = rows.map(mapCustomerRow); }),
       fetchServices().then(rows => { SERVICES = rows.map(mapServiceRow); }),
-      fetchBookings().then(rows => { EVENTS = rows.map(mapBookingToEvent); }),
+      fetchBookings().then(rows => { EVENTS = rows.map(mapBookingToEvent); if (rows.length >= 500) setBookingsTruncated(true); }),
       fetchStaff().then(rows => { STAFF = rows; }),
       fetchBlocks().then(rows => { BLOCKS = rows; }),
       getCompanySettings(user.id).then(s => { setMainSettings(s); WEBHOOK_URL = s?.webhook_url ?? null; COMPANY_WH = s?.working_hours ?? null; }).catch(() => {}),
@@ -4110,7 +4141,7 @@ export default function Dashboard() {
           <Dock title={m.title} crumb={m.crumb} right={right} aiOn={aiOn} onToggleAi={toggleAi} />
           <div className="view">
             {loading ? <LoadingView /> : <>
-              {nav === 'today'     && <TodayView setNav={setNav} setCallSel={setCallSel} onRefresh={refreshBookings} aiOn={aiOn} companySettings={mainSettings} onSendReminder={handleSendReminder} />}
+              {nav === 'today'     && <TodayView setNav={setNav} setCallSel={setCallSel} onRefresh={refreshBookings} aiOn={aiOn} companySettings={mainSettings} onSendReminder={handleSendReminder} bookingsTruncated={bookingsTruncated} />}
               {nav === 'inbox'     && <InboxView selId={callSel} setSelId={setCallSel} onBookingCreated={refreshBookings} onNavCalendar={() => setNav('calendar')} dataVersion={dataVersion} onDemoSeeded={async () => { await Promise.all([refreshCalls(), refreshBookings(), refreshCustomers()]); setDataVersion(v => v + 1); }} />}
               {nav === 'calendar'  && <CalendarView onRefresh={refreshBookings} onRefreshBlocks={refreshBlocks} prefillClient={calPrefill} onPrefillUsed={() => setCalPrefill(null)} />}
               {nav === 'clients'   && <ClientsView onRefresh={refreshCustomers} onNavigate={(view, prefill) => { if (prefill) setCalPrefill(prefill); setNav(view); }} />}
