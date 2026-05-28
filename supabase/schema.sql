@@ -317,3 +317,10 @@ ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS elevenlabs_voice_id
 -- Service descriptions and prep notes (onboarding v2)
 ALTER TABLE public.services ADD COLUMN IF NOT EXISTS description text;
 ALTER TABLE public.services ADD COLUMN IF NOT EXISTS prep_note text;
+
+-- Phase 13: AI telephony improvements
+-- Fast lookup of customer by incoming caller phone number
+CREATE INDEX IF NOT EXISTS customers_phone_user_idx ON public.customers(user_id, phone);
+
+-- Store AI context snapshot per call for debugging and analytics
+ALTER TABLE public.calls ADD COLUMN IF NOT EXISTS ai_context_snapshot jsonb;
