@@ -19,6 +19,7 @@ import type { AIContext } from '../_shared/aiContext.ts'
 import { buildSystemPrompt } from '../_shared/systemPrompt.ts'
 
 const OPENAI_MODEL = 'gpt-4o-realtime-preview-2024-12-17'
+// GA API — no longer uses openai-beta.realtime-v1 subprotocol
 const OPENAI_VOICE = 'alloy' // alloy | echo | shimmer | ash | coral | sage
 const OPENAI_WS_TIMEOUT_MS = 4000
 
@@ -125,7 +126,7 @@ async function handleCall(twilioWs: WebSocket) {
         // Connect to OpenAI Realtime API
         openaiWs = new WebSocket(
           `wss://api.openai.com/v1/realtime?model=${OPENAI_MODEL}`,
-          ['realtime', `openai-insecure-api-key.${apiKey}`, 'openai-beta.realtime-v1'],
+          ['realtime', `openai-insecure-api-key.${apiKey}`],
         )
 
         // Fail fast if OpenAI WS doesn't open in time
