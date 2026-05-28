@@ -1,20 +1,22 @@
 // Capacitor native plugin wrappers — all calls are no-ops on web
+// @vite-ignore comments prevent Vite from statically analyzing these imports
 let StatusBar, Keyboard, Haptics, SplashScreen, PushNotifications
 let isNative = false
 
 async function init() {
   if (typeof window === 'undefined') return
   try {
-    const { Capacitor } = await import('@capacitor/core')
+    // eslint-disable-next-line import/no-unresolved
+    const { Capacitor } = await import(/* @vite-ignore */ '@capacitor/core')
     isNative = Capacitor.isNativePlatform()
     if (!isNative) return
 
     const [sb, kb, hap, ss, pn] = await Promise.all([
-      import('@capacitor/status-bar'),
-      import('@capacitor/keyboard'),
-      import('@capacitor/haptics'),
-      import('@capacitor/splash-screen'),
-      import('@capacitor/push-notifications'),
+      import(/* @vite-ignore */ '@capacitor/status-bar'),
+      import(/* @vite-ignore */ '@capacitor/keyboard'),
+      import(/* @vite-ignore */ '@capacitor/haptics'),
+      import(/* @vite-ignore */ '@capacitor/splash-screen'),
+      import(/* @vite-ignore */ '@capacitor/push-notifications'),
     ])
     StatusBar = sb.StatusBar
     Keyboard = kb.Keyboard
