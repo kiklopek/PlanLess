@@ -7,7 +7,7 @@
  */
 import { adminClient } from '../_shared/supabase.ts'
 import { getAvailableSlots } from '../_shared/scheduling.ts'
-import { buildAIContext, matchService, sendSmsConfirmations } from '../_shared/aiContext.ts'
+import { buildAIContext, matchService, sendSmsConfirmations, sendSmsCancellation } from '../_shared/aiContext.ts'
 import { buildGatherSystemPrompt } from '../_shared/systemPrompt.ts'
 
 const FALLBACK_VOICE = 'Polly.Maja'
@@ -26,6 +26,7 @@ interface AIAction {
   speak: string
   done: boolean
   action?: string | null
+  booking_id?: string | null
   slot_request?: { service_name?: string; preferred_date?: string } | null
   booking?: {
     service_name: string
@@ -99,7 +100,7 @@ Deno.serve(async (req) => {
 
   // Handle get_more_slots — inject fresh slots and re-query AI
   if (!action.done && action.action === 'get_more_slots' && action.slot_request) {
-    const req2 = action.slot_request
+    const req2 = action.slot_request ?? {}
     const svc = req2.service_name ? matchService(ctx.services, req2.service_name) : ctx.services[0]
     const targetDate = req2.preferred_date ? new Date(req2.preferred_date) : new Date()
 
@@ -172,6 +173,39 @@ Deno.serve(async (req) => {
   if (extractedName && extractedName !== state.customerName) {
     state.customerName = extractedName
     await db.from('calls').update({ customer_name: extractedName }).eq('twilio_call_sid', callSid)
+  }
+
+  if (action.done && action.action === 'cancel_booking') {
+    const bookingId = action.booking_id ?? null
+    if (bookingId) {
+      const { data: bk } = await db.from('bookings')
+        .select('id, starts_at, status, services(name)')
+        .eq('id', bookingId)
+        .eq('user_id', userId)
+        .single()
+
+      if (bk && bk.status !== 'cancelled') {
+        await db.from('bookings').update({ status: 'cancelled' }).eq('id', bookingId).eq('user_id', userId)
+
+        const startsAt = new Date(bk.starts_at)
+        const serviceName = (bk.services as any)?.name ?? 'služba'
+
+        if (ctx.company.aiConfirmSms) {
+          sendSmsCancellation(
+            {
+              twilio_account_sid: ctx.company.twilioAccountSid,
+              twilio_auth_token: ctx.company.twilioAuthToken,
+              twilio_phone_number: ctx.company.twilioPhoneNumber,
+              company_name: ctx.company.name,
+              escalation_phone: ctx.company.escalationPhone,
+            },
+            from, serviceName, startsAt, extractedName ?? null, ctx.company.timezone,
+          )
+        }
+      }
+    }
+    await finalizeCall(db, callSid, userId, from, state, action.update_summary ?? 'Zákazník zrušil rezervaci.', extractedName)
+    return twimlSpeak(action.speak, voiceId, true)
   }
 
   if (action.done && action.transfer && ctx.company.escalationPhone) {

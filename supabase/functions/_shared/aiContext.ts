@@ -2,7 +2,7 @@
  * Centralized AI context builder — single source of truth for all call data.
  * Both twilio-realtime and twilio-gather use this to get consistent context.
  */
-import { getAvailableSlots } from './scheduling.ts'
+import { getAvailableSlots, isWithinWorkingHours, nextOpeningTime } from './scheduling.ts'
 
 export interface AIContext {
   company: {
@@ -45,12 +45,20 @@ export interface AIContext {
     preferredTimeOfDay: string | null
     favoriteService: string | null
     totalVisits: number
+    upcomingBookings: Array<{
+      id: string
+      serviceName: string | null
+      startsAt: string
+      status: string
+    }>
   }
   availability: {
     slotsText: string
     slots: Array<{ startsAt: Date; display: string }>
   }
   workingHoursSummary: string
+  isWithinBusinessHours: boolean
+  nextOpeningTime: string
 }
 
 /**
@@ -96,16 +104,29 @@ export async function buildAIContext(
   const tz = cfg?.timezone ?? 'Europe/Prague'
   const wh = cfg?.working_hours ?? {}
 
-  const historyRes = customer?.id
-    ? await db.from('bookings')
-        .select('starts_at, services(name)')
-        .eq('user_id', userId)
-        .eq('customer_id', customer.id)
-        .order('starts_at', { ascending: false })
-        .limit(15)
-    : { data: [] }
+  const now = new Date()
+
+  const [historyRes, upcomingRes] = customer?.id
+    ? await Promise.all([
+        db.from('bookings')
+          .select('starts_at, services(name)')
+          .eq('user_id', userId)
+          .eq('customer_id', customer.id)
+          .order('starts_at', { ascending: false })
+          .limit(15),
+        db.from('bookings')
+          .select('id, starts_at, status, services(name)')
+          .eq('user_id', userId)
+          .eq('customer_id', customer.id)
+          .gte('starts_at', now.toISOString())
+          .neq('status', 'cancelled')
+          .order('starts_at', { ascending: true })
+          .limit(5),
+      ])
+    : [{ data: [] }, { data: [] }]
 
   const history: any[] = historyRes.data ?? []
+  const upcomingRaw: any[] = upcomingRes.data ?? []
 
   // Fetch slots for next 5 days (up to 5 days with slots shown)
   const durationMin = services[0]?.duration_min ?? 60
@@ -181,9 +202,17 @@ export async function buildAIContext(
       preferredTimeOfDay: history.length ? inferPreferredTime(history.map(b => b.starts_at), tz) : null,
       favoriteService: history.length ? inferFavoriteService(history) : null,
       totalVisits: history.length,
+      upcomingBookings: upcomingRaw.map(b => ({
+        id: b.id,
+        serviceName: (b.services as any)?.name ?? null,
+        startsAt: b.starts_at,
+        status: b.status ?? 'booked',
+      })),
     },
     availability: { slotsText, slots: allSlots },
     workingHoursSummary: buildWorkingHoursSummary(wh),
+    isWithinBusinessHours: isWithinWorkingHours(wh, tz),
+    nextOpeningTime: nextOpeningTime(wh, tz),
   }
 }
 
@@ -238,6 +267,50 @@ export function matchService(
   return services.find(
     s => s.name.toLowerCase().includes(n) || n.includes(s.name.toLowerCase()),
   ) ?? null
+}
+
+export function sendSmsCancellation(
+  cfg: {
+    twilio_account_sid?: string | null
+    twilio_auth_token?: string | null
+    twilio_phone_number?: string | null
+    company_name?: string | null
+    escalation_phone?: string | null
+  },
+  callerPhone: string,
+  serviceName: string,
+  startsAt: Date,
+  customerName: string | null,
+  tz: string,
+) {
+  if (!cfg.twilio_account_sid || !cfg.twilio_auth_token || !cfg.twilio_phone_number) return
+  const base = `https://api.twilio.com/2010-04-01/Accounts/${cfg.twilio_account_sid}/Messages.json`
+  const auth = `Basic ${btoa(`${cfg.twilio_account_sid}:${cfg.twilio_auth_token}`)}`
+  const label = startsAt.toLocaleString('cs-CZ', {
+    timeZone: tz, day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+  })
+
+  fetch(base, {
+    method: 'POST',
+    headers: { Authorization: auth, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      To: callerPhone,
+      From: cfg.twilio_phone_number,
+      Body: `Vaše rezervace byla zrušena: ${serviceName}, ${label}. — ${cfg.company_name ?? ''}`,
+    }).toString(),
+  }).catch(() => {})
+
+  if (cfg.escalation_phone) {
+    fetch(base, {
+      method: 'POST',
+      headers: { Authorization: auth, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        To: cfg.escalation_phone,
+        From: cfg.twilio_phone_number,
+        Body: `Zákazník zrušil rezervaci: ${serviceName}, ${label}. Zákazník: ${customerName ?? callerPhone}`,
+      }).toString(),
+    }).catch(() => {})
+  }
 }
 
 export function sendSmsConfirmations(

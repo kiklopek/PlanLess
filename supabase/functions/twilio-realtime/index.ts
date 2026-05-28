@@ -14,7 +14,7 @@
 
 import { adminClient } from '../_shared/supabase.ts'
 import { getAvailableSlots } from '../_shared/scheduling.ts'
-import { buildAIContext, matchService, sendSmsConfirmations } from '../_shared/aiContext.ts'
+import { buildAIContext, matchService, sendSmsConfirmations, sendSmsCancellation } from '../_shared/aiContext.ts'
 import type { AIContext } from '../_shared/aiContext.ts'
 import { buildSystemPrompt } from '../_shared/systemPrompt.ts'
 
@@ -264,6 +264,51 @@ async function handleCall(twilioWs: WebSocket) {
     if (!ctx) return 'Kontext není k dispozici.'
     const tz = ctx.company.timezone
 
+    if (name === 'cancel_booking') {
+      try {
+        const { booking_id } = args
+        if (!booking_id) return 'Chybí ID rezervace. Zkontroluj sekci Existující rezervace zákazníka v kontextu.'
+
+        const { data: bk } = await db.from('bookings')
+          .select('id, starts_at, status, services(name)')
+          .eq('id', booking_id)
+          .eq('user_id', userId)
+          .single()
+
+        if (!bk) return 'Rezervace nenalezena nebo nepatří tomuto zákazníkovi.'
+        if (bk.status === 'cancelled') return 'Tato rezervace již byla dříve zrušena.'
+
+        await db.from('bookings').update({ status: 'cancelled' }).eq('id', booking_id).eq('user_id', userId)
+
+        const startsAt = new Date(bk.starts_at)
+        const serviceName = (bk.services as any)?.name ?? 'služba'
+        const dateLabel = startsAt.toLocaleString('cs-CZ', {
+          timeZone: tz, day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+        })
+
+        if (ctx.company.aiConfirmSms) {
+          sendSmsCancellation(
+            {
+              twilio_account_sid: ctx.company.twilioAccountSid,
+              twilio_auth_token: ctx.company.twilioAuthToken,
+              twilio_phone_number: ctx.company.twilioPhoneNumber,
+              company_name: ctx.company.name,
+              escalation_phone: ctx.company.escalationPhone,
+            },
+            callerPhone, serviceName, startsAt, ctx.customer.name, tz,
+          )
+        }
+
+        if (callDbId) {
+          await db.from('calls').update({ status: 'resched' }).eq('id', callDbId)
+        }
+
+        return `Rezervace ${serviceName} na ${dateLabel} byla úspěšně zrušena.`
+      } catch (err) {
+        return `Chyba při rušení rezervace: ${(err as Error).message}`
+      }
+    }
+
     if (name === 'get_more_slots') {
       try {
         const { service_name, preferred_date } = args
@@ -424,7 +469,24 @@ async function handleCall(twilioWs: WebSocket) {
 
 function buildTools(ctx: AIContext) {
   const serviceEnum = ctx.services.map(s => s.name)
+  const bookingIds = ctx.customer.upcomingBookings.map(b => b.id)
   return [
+    ...(bookingIds.length ? [{
+      type: 'function',
+      name: 'cancel_booking',
+      description: 'Zruší existující rezervaci zákazníka. Volej POUZE po explicitním potvrzení zákazníkem.',
+      parameters: {
+        type: 'object',
+        properties: {
+          booking_id: {
+            type: 'string',
+            description: 'ID rezervace ze sekce Existující rezervace zákazníka',
+            ...(bookingIds.length ? { enum: bookingIds } : {}),
+          },
+        },
+        required: ['booking_id'],
+      },
+    }] : []),
     {
       type: 'function',
       name: 'get_more_slots',
