@@ -1563,23 +1563,26 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
                 const staffColor = staffMember?.color;
                 const svcLabel = e.service_name || 'Rezervace';
                 const customerLabel = (e.who && e.who !== '—' && e.who !== svcLabel) ? e.who : null;
-                const showCustomer = customerLabel && height >= 54;
-                const showTime = height >= 38;
+                const isTiny = height < 32;
+                const showCustomer = customerLabel && height >= 56;
+                const showTime = height >= 32;
                 return (
                   <div
                     key={i}
-                    className={cx('evt', !staffColor && e.c, e.ai && 'ai-suggest', selEvent?.id === e.id && 'on')}
+                    className={cx('evt', !staffColor && e.c, e.ai && 'ai-suggest', selEvent?.id === e.id && 'on', isTiny && 'evt-tiny')}
                     style={{
                       top, height, cursor: 'pointer',
                       ...(staffColor ? { background: staffColor + '28', borderColor: staffColor, borderWidth: 1 } : {}),
                     }}
                     onClick={(ev) => { ev.stopPropagation(); setSelEvent(selEvent?.id === e.id ? null : e); setSelBlock(null); }}
                   >
-                    <div className="evt-hd">
-                      {staffMember && <div style={{ width: 5, height: 5, borderRadius: '50%', background: staffColor, flexShrink: 0, marginTop: 2 }} />}
-                      <div className="t" style={{ flex: 1, minWidth: 0 }}>{svcLabel}</div>
+                    <div className="evt-body">
+                      <div className="evt-hd">
+                        {staffMember && <div className="evt-dot" style={{ background: staffColor }} />}
+                        <div className="t">{svcLabel}</div>
+                      </div>
+                      {showCustomer && <div className="evt-who">{customerLabel}</div>}
                     </div>
-                    {showCustomer && <div className="evt-who">{customerLabel}</div>}
                     {showTime && <div className="s">{fmtTime(e.s)}–{fmtTime(e.e)}</div>}
                   </div>
                 );
