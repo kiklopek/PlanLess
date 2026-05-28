@@ -343,8 +343,10 @@
   background: var(--accent-soft); border: 1px solid var(--accent-ring);
   color: var(--ink);
 }
-.evt .t { font-weight: 500; }
-.evt .s { color: var(--ink-3); font-size: 10.5px; margin-top: 2px; font-family: 'Geist Mono', monospace; }
+.evt-hd { display: flex; align-items: flex-start; gap: 4px; }
+.evt .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.evt-who { font-size: 10.5px; color: var(--ink-2); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.evt .s { color: var(--ink-3); font-size: 10px; margin-top: 2px; font-family: 'Geist Mono', monospace; }
 .evt.green { background: var(--live-soft); border-color: oklch(0.78 0.15 145 / 0.28); }
 .evt.warn { background: var(--warn-soft); border-color: oklch(0.82 0.13 75 / 0.28); }
 .evt.info { background: var(--info-soft); border-color: oklch(0.75 0.10 230 / 0.28); }

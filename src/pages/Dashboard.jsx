@@ -1561,6 +1561,10 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
                 const height = Math.max((e.e - e.s) * ROW_H - 4, 20);
                 const staffMember = e.staff_id ? STAFF.find(s => s.id === e.staff_id) : null;
                 const staffColor = staffMember?.color;
+                const svcLabel = e.service_name || 'Rezervace';
+                const customerLabel = (e.who && e.who !== '—' && e.who !== svcLabel) ? e.who : null;
+                const showCustomer = customerLabel && height >= 54;
+                const showTime = height >= 38;
                 return (
                   <div
                     key={i}
@@ -1571,9 +1575,12 @@ const CalendarView = ({ onRefresh, onRefreshBlocks, prefillClient, onPrefillUsed
                     }}
                     onClick={(ev) => { ev.stopPropagation(); setSelEvent(selEvent?.id === e.id ? null : e); setSelBlock(null); }}
                   >
-                    {staffMember && <div style={{ width: 6, height: 6, borderRadius: '50%', background: staffColor, flexShrink: 0, marginBottom: 2 }} />}
-                    <div className="t">{e.t}</div>
-                    <div className="s">{fmtTime(e.s)}–{fmtTime(e.e)}</div>
+                    <div className="evt-hd">
+                      {staffMember && <div style={{ width: 5, height: 5, borderRadius: '50%', background: staffColor, flexShrink: 0, marginTop: 2 }} />}
+                      <div className="t" style={{ flex: 1, minWidth: 0 }}>{svcLabel}</div>
+                    </div>
+                    {showCustomer && <div className="evt-who">{customerLabel}</div>}
+                    {showTime && <div className="s">{fmtTime(e.s)}–{fmtTime(e.e)}</div>}
                   </div>
                 );
               })}
