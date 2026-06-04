@@ -1,7 +1,7 @@
 /**
  * Twilio Gather Webhook — called after caller speaks.
- * Uses GPT-4o for reasoning, ElevenLabs for voice (Polly.Maja fallback).
- * Falls back to Claude Haiku if OPENAI_API_KEY not set.
+ * AI provider router: Gemini (free) → OpenAI → Claude, whichever key is set.
+ * Voice: ElevenLabs if configured, else Polly.Maja fallback.
  *
  * IMPORTANT: Disable JWT verification for this function in Supabase Dashboard.
  */
@@ -102,7 +102,7 @@ Deno.serve(async (req) => {
   const systemPrompt = buildGatherSystemPrompt(ctx)
   const messages = state.turns.map(t => ({ role: t.role, content: t.content }))
 
-  let action: AIAction = await callOpenAI(systemPrompt, messages)
+  let action: AIAction = await callAI(systemPrompt, messages)
 
   // Handle get_more_slots — inject fresh slots and re-query AI
   if (!action.done && action.action === 'get_more_slots' && action.slot_request) {
@@ -132,7 +132,7 @@ Deno.serve(async (req) => {
           ? `[systém: volné termíny ${dayLabel}: ${times.join(', ')}. Nabídni zákazníkovi tyto termíny.]`
           : `[systém: ${dayLabel} nemáme volné termíny. Doporuč jiný den.]`
         state.turns.push({ role: 'user', content: slotsMsg })
-        action = await callOpenAI(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })))
+        action = await callAI(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })))
       } catch { /* fall through with original action */ }
     }
   }
@@ -162,13 +162,13 @@ Deno.serve(async (req) => {
           role: 'user',
           content: `[systém: navrhovaný čas (${proposedDate.toLocaleString('cs-CZ', { timeZone: ctx.company.timezone })}) není volný. Nejbližší volné termíny: ${altList}. Nabídni zákazníkovi tyto alternativy.]`,
         })
-        action = await callOpenAI(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })))
+        action = await callAI(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })))
       } else if (slots.length === 0) {
         state.turns.push({
           role: 'user',
           content: '[systém: v navrhovaném termínu ani v blízkém okolí není žádný volný čas. Informuj zákazníka a nabídni zavolání zpět nebo přepojení.]',
         })
-        action = await callOpenAI(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })))
+        action = await callAI(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })))
       }
     }
   }
@@ -291,61 +291,90 @@ Deno.serve(async (req) => {
 
 // ─── AI ─────────────────────────────────────────────────────────────────────
 
-async function callOpenAI(
+const TECH_ERROR: AIAction = {
+  speak: 'Omlouváme se, momentálně mám technické potíže. Zavolejte prosím znovu.',
+  done: true,
+}
+
+/**
+ * Provider router — tries each configured provider in order until one succeeds.
+ * Order: Gemini (free tier) → OpenAI → Claude. Set the matching env secret.
+ */
+async function callAI(
   systemPrompt: string,
   messages: Array<{ role: string; content: string }>,
 ): Promise<AIAction> {
-  const apiKey = Deno.env.get('OPENAI_API_KEY') ?? ''
-  if (!apiKey) return callClaude(systemPrompt, messages)
-  try {
-    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: 'gpt-4o',
-        max_tokens: 400,
-        response_format: { type: 'json_object' },
-        messages: [{ role: 'system', content: systemPrompt }, ...messages],
-      }),
-    })
-    const body = await resp.json()
-    if (!resp.ok) throw new Error(body.error?.message ?? 'OpenAI error')
-    return parseAIResponse(body.choices?.[0]?.message?.content ?? '{}')
-  } catch (err) {
-    console.error('[twilio-gather] OpenAI error:', err)
-    // Fall back to Claude if available (e.g. OpenAI quota exhausted)
-    if (Deno.env.get('ANTHROPIC_API_KEY')) {
-      console.log('[twilio-gather] falling back to Claude')
-      return callClaude(systemPrompt, messages)
+  const providers: Array<() => Promise<AIAction | null>> = []
+  if (Deno.env.get('GEMINI_API_KEY'))    providers.push(() => callOpenAICompatible(systemPrompt, messages, 'gemini'))
+  if (Deno.env.get('OPENAI_API_KEY'))    providers.push(() => callOpenAICompatible(systemPrompt, messages, 'openai'))
+  if (Deno.env.get('ANTHROPIC_API_KEY')) providers.push(() => callClaude(systemPrompt, messages))
+
+  for (const provider of providers) {
+    try {
+      const result = await provider()
+      if (result) return result
+    } catch (err) {
+      console.error('[twilio-gather] provider failed, trying next:', err)
     }
-    return { speak: 'Omlouváme se, momentálně mám technické potíže. Zavolejte prosím znovu.', done: true }
   }
+  return TECH_ERROR
+}
+
+// OpenAI + Gemini share the same /chat/completions request shape.
+// Gemini exposes an OpenAI-compatible endpoint, so one function covers both.
+async function callOpenAICompatible(
+  systemPrompt: string,
+  messages: Array<{ role: string; content: string }>,
+  provider: 'openai' | 'gemini',
+): Promise<AIAction | null> {
+  const cfg = provider === 'gemini'
+    ? {
+        url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+        key: Deno.env.get('GEMINI_API_KEY')!,
+        model: 'gemini-2.0-flash',
+      }
+    : {
+        url: 'https://api.openai.com/v1/chat/completions',
+        key: Deno.env.get('OPENAI_API_KEY')!,
+        model: 'gpt-4o',
+      }
+
+  const resp = await fetch(cfg.url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.key}` },
+    body: JSON.stringify({
+      model: cfg.model,
+      max_tokens: 400,
+      response_format: { type: 'json_object' },
+      messages: [{ role: 'system', content: systemPrompt }, ...messages],
+    }),
+  })
+  const body = await resp.json()
+  if (!resp.ok) throw new Error(body.error?.message ?? `${provider} error`)
+  return parseAIResponse(body.choices?.[0]?.message?.content ?? '{}')
 }
 
 async function callClaude(
   systemPrompt: string,
   messages: Array<{ role: string; content: string }>,
-): Promise<AIAction> {
-  try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 400,
-        system: systemPrompt,
-        messages,
-      }),
-    })
-    const body = await resp.json()
-    return parseAIResponse(body.content?.[0]?.text ?? '{}')
-  } catch {
-    return { speak: 'Omlouváme se, momentálně mám technické potíže. Zavolejte prosím znovu.', done: true }
-  }
+): Promise<AIAction | null> {
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 400,
+      system: systemPrompt,
+      messages,
+    }),
+  })
+  const body = await resp.json()
+  if (!resp.ok) throw new Error(body.error?.message ?? 'Claude error')
+  return parseAIResponse(body.content?.[0]?.text ?? '{}')
 }
 
 // 4-stage fallback JSON parser — handles markdown fences, partial JSON, etc.
