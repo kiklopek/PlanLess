@@ -350,7 +350,10 @@ async function callOpenAICompatible(
     }),
   })
   const body = await resp.json()
-  if (!resp.ok) throw new Error(body.error?.message ?? `${provider} error`)
+  if (!resp.ok) {
+    console.error(`[twilio-gather] ${provider} HTTP ${resp.status}:`, JSON.stringify(body))
+    throw new Error(body.error?.message ?? `${provider} error`)
+  }
   return parseAIResponse(body.choices?.[0]?.message?.content ?? '{}')
 }
 
