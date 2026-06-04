@@ -18,8 +18,8 @@ import { buildAIContext, matchService, sendSmsConfirmations, sendSmsCancellation
 import type { AIContext } from '../_shared/aiContext.ts'
 import { buildSystemPrompt } from '../_shared/systemPrompt.ts'
 
-const OPENAI_MODEL = 'gpt-4o-realtime-preview-2024-12-17'
-// GA API — no longer uses openai-beta.realtime-v1 subprotocol
+const OPENAI_MODEL = 'gpt-4o-realtime-preview'
+// GA API — /v1/realtime, no openai-beta.realtime-v1 subprotocol
 const OPENAI_VOICE = 'alloy' // alloy | echo | shimmer | ash | coral | sage
 const OPENAI_WS_TIMEOUT_MS = 4000
 
