@@ -298,7 +298,7 @@ const TECH_ERROR: AIAction = {
 
 /**
  * Provider router — tries each configured provider in order until one succeeds.
- * Order: Gemini (free tier) → OpenAI → Claude. Set the matching env secret.
+ * Order: Gemini → Groq (both free tier) → OpenAI → Claude. Set the matching env secret.
  */
 async function callAI(
   systemPrompt: string,
@@ -306,6 +306,7 @@ async function callAI(
 ): Promise<AIAction> {
   const providers: Array<() => Promise<AIAction | null>> = []
   if (Deno.env.get('GEMINI_API_KEY'))    providers.push(() => callOpenAICompatible(systemPrompt, messages, 'gemini'))
+  if (Deno.env.get('GROQ_API_KEY'))      providers.push(() => callOpenAICompatible(systemPrompt, messages, 'groq'))
   if (Deno.env.get('OPENAI_API_KEY'))    providers.push(() => callOpenAICompatible(systemPrompt, messages, 'openai'))
   if (Deno.env.get('ANTHROPIC_API_KEY')) providers.push(() => callClaude(systemPrompt, messages))
 
@@ -320,18 +321,24 @@ async function callAI(
   return TECH_ERROR
 }
 
-// OpenAI + Gemini share the same /chat/completions request shape.
-// Gemini exposes an OpenAI-compatible endpoint, so one function covers both.
+// OpenAI, Gemini and Groq all share the /chat/completions request shape.
+// Gemini and Groq expose OpenAI-compatible endpoints, so one function covers all three.
 async function callOpenAICompatible(
   systemPrompt: string,
   messages: Array<{ role: string; content: string }>,
-  provider: 'openai' | 'gemini',
+  provider: 'openai' | 'gemini' | 'groq',
 ): Promise<AIAction | null> {
   const cfg = provider === 'gemini'
     ? {
         url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
         key: Deno.env.get('GEMINI_API_KEY')!,
         model: 'gemini-2.0-flash',
+      }
+    : provider === 'groq'
+    ? {
+        url: 'https://api.groq.com/openai/v1/chat/completions',
+        key: Deno.env.get('GROQ_API_KEY')!,
+        model: 'llama-3.3-70b-versatile',
       }
     : {
         url: 'https://api.openai.com/v1/chat/completions',
