@@ -313,6 +313,11 @@ async function callOpenAI(
     return parseAIResponse(body.choices?.[0]?.message?.content ?? '{}')
   } catch (err) {
     console.error('[twilio-gather] OpenAI error:', err)
+    // Fall back to Claude if available (e.g. OpenAI quota exhausted)
+    if (Deno.env.get('ANTHROPIC_API_KEY')) {
+      console.log('[twilio-gather] falling back to Claude')
+      return callClaude(systemPrompt, messages)
+    }
     return { speak: 'Omlouváme se, momentálně mám technické potíže. Zavolejte prosím znovu.', done: true }
   }
 }
