@@ -46,21 +46,27 @@ Deno.serve(async (req) => {
 
   const db = adminClient()
 
-  // Route lookup — get settings by Twilio number
-  const { data: settings } = await db
-    .from('company_settings')
-    .select([
-      'user_id', 'company_name', 'ai_notes', 'company_description',
-      'working_hours', 'timezone', 'cancellation_policy',
-      'lead_time_minutes', 'max_booking_horizon_days', 'default_buffer_minutes',
-      'ai_auto_book', 'ai_confirm_sms', 'allow_unknown_service',
-      'escalation_phone', 'twilio_phone_number', 'twilio_account_sid', 'twilio_auth_token',
-      'elevenlabs_voice_id',
-    ].join(', '))
-    .eq('twilio_phone_number', to)
-    .maybeSingle()
+  // Route lookup — try multiple phone number formats (Twilio may send with/without spaces, +, etc.)
+  const COLS = [
+    'user_id', 'company_name', 'ai_greeting', 'ai_notes', 'company_description',
+    'working_hours', 'timezone', 'cancellation_policy',
+    'lead_time_minutes', 'max_booking_horizon_days', 'default_buffer_minutes',
+    'ai_auto_book', 'ai_confirm_sms', 'allow_unknown_service',
+    'escalation_phone', 'twilio_phone_number', 'twilio_account_sid', 'twilio_auth_token',
+    'elevenlabs_voice_id',
+  ].join(', ')
+
+  const phoneVariants = [to, to.replace(/\s/g, ''), to.replace(/^\+/, ''), `+${to.replace(/^\+/, '')}`]
+  let settings: any = null
+  for (const variant of phoneVariants) {
+    const { data } = await db.from('company_settings').select(COLS).eq('twilio_phone_number', variant).maybeSingle()
+    if (data) { settings = data; break }
+  }
+
+  console.log('[twilio-gather] settings lookup', { found: !!settings, to, callSid })
 
   if (!settings) {
+    console.error('[twilio-gather] NO COMPANY FOUND for phone number', to)
     return twimlSpeak('Omlouváme se, tato linka není momentálně dostupná.', null)
   }
 
@@ -269,7 +275,7 @@ Deno.serve(async (req) => {
     .update({ conversation_state: state, customer_name: extractedName ?? null })
     .eq('twilio_call_sid', callSid)
 
-  const gatherUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-gather`
+  const gatherUrl = escapeXml(`${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-gather`)
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather input="speech" action="${gatherUrl}" method="POST"

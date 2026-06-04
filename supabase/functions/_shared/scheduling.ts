@@ -71,6 +71,30 @@ function generateSlots(free: Interval[], totalMin: number, stepMin = 15): Interv
   return slots
 }
 
+// Convert a date+time string in a specific IANA timezone to a UTC Date.
+// e.g. parseInTimezone('2026-06-04', '09:00', 'Europe/Prague') → Date at UTC 07:00
+function parseInTimezone(dateStr: string, timeStr: string, timezone: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const [h, min] = timeStr.split(':').map(Number)
+  const utcBase = new Date(Date.UTC(y, m - 1, d, h, min, 0))
+
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  })
+  const parts = fmt.formatToParts(utcBase)
+  const get = (type: string) => parseInt(parts.find(p => p.type === type)?.value ?? '0', 10)
+
+  const localSec = get('hour') * 3600 + get('minute') * 60 + get('second')
+  const targetSec = h * 3600 + min * 60
+  let diffSec = localSec - targetSec
+  if (diffSec > 12 * 3600) diffSec -= 24 * 3600
+  if (diffSec < -12 * 3600) diffSec += 24 * 3600
+
+  return new Date(utcBase.getTime() - diffSec * 1000)
+}
+
 function getWorkInterval(
   date: Date,
   workingHours: Record<string, Array<{ start: string; end: string }>>,
@@ -84,8 +108,8 @@ function getWorkInterval(
   const { start, end } = slots[0]
   const dateStr = date.toLocaleDateString('en-CA', { timeZone: timezone })
   return {
-    startsAt: new Date(`${dateStr}T${start}:00`),
-    endsAt: new Date(`${dateStr}T${end}:00`),
+    startsAt: parseInTimezone(dateStr, start, timezone),
+    endsAt: parseInTimezone(dateStr, end, timezone),
   }
 }
 
