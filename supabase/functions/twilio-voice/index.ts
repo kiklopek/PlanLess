@@ -78,19 +78,23 @@ Deno.serve(async (req) => {
     status:          'live',
   }).select('id').maybeSingle()
 
-  // Route to gather (gpt-4o HTTP polling — works on all OpenAI accounts)
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const gatherUrl = supabaseUrl + '/functions/v1/twilio-gather'
   const greeting = settings.ai_greeting ?? `Dobrý den, vítejte v ${company}. Čím vám mohu pomoci?`
+  const voiceId = settings.elevenlabs_voice_id ?? null
 
-  console.log('[twilio-voice] routing to gather', { gatherUrl, greeting })
+  console.log('[twilio-voice] routing to gather', { gatherUrl, greeting, voiceId: !!voiceId })
+
+  const greetingTwiml = voiceId
+    ? `<Play>${esc(`${supabaseUrl}/functions/v1/tts?t=${encodeURIComponent(greeting)}&v=${encodeURIComponent(voiceId)}`)}</Play>`
+    : `<Say voice="${FALLBACK_VOICE}" language="cs-CZ">${esc(greeting)}</Say>`
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather input="speech" action="${esc(gatherUrl)}" method="POST"
           timeout="5" speechTimeout="auto" language="cs-CZ"
           actionOnEmptyResult="true">
-    <Say voice="${FALLBACK_VOICE}" language="cs-CZ">${esc(greeting)}</Say>
+    ${greetingTwiml}
   </Gather>
   <Say voice="${FALLBACK_VOICE}" language="cs-CZ">Promiňte, neslyšela jsem vás. Zavolejte nám prosím znovu.</Say>
 </Response>`
