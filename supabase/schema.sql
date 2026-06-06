@@ -324,3 +324,6 @@ CREATE INDEX IF NOT EXISTS customers_phone_user_idx ON public.customers(user_id,
 
 -- Store AI context snapshot per call for debugging and analytics
 ALTER TABLE public.calls ADD COLUMN IF NOT EXISTS ai_context_snapshot jsonb;
+
+-- AI conversation language: 'cs-CZ' (default) or 'en-US'
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS ai_language text DEFAULT 'cs-CZ';

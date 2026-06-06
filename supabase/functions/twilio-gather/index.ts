@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
     'lead_time_minutes', 'max_booking_horizon_days', 'default_buffer_minutes',
     'ai_auto_book', 'ai_confirm_sms', 'allow_unknown_service',
     'escalation_phone', 'twilio_phone_number', 'twilio_account_sid', 'twilio_auth_token',
-    'elevenlabs_voice_id',
+    'elevenlabs_voice_id', 'ai_language',
   ].join(', ')
 
   const phoneVariants = [to, to.replace(/\s/g, ''), to.replace(/^\+/, ''), `+${to.replace(/^\+/, '')}`]
@@ -67,11 +67,17 @@ Deno.serve(async (req) => {
 
   if (!settings) {
     console.error('[twilio-gather] NO COMPANY FOUND for phone number', to)
-    return twimlSpeak('Omlouváme se, tato linka není momentálně dostupná.', null)
+    const fallbackLang = (settings as any)?.ai_language === 'en-US' ? 'en-US' : 'cs-CZ'
+    const fallbackMsg = fallbackLang === 'en-US'
+      ? 'Sorry, this line is currently unavailable.'
+      : 'Omlouváme se, tato linka není momentálně dostupná.'
+    return twimlSpeak(fallbackMsg, null, false, fallbackLang)
   }
 
   const { user_id: userId, company_name: companyName } = settings
   const voiceId: string | null = settings.elevenlabs_voice_id ?? null
+  const sayLang: string = settings.ai_language === 'en-US' ? 'en-US' : 'cs-CZ'
+  const isEN: boolean = sayLang === 'en-US'
 
   // Build full AI context (pre-pass settings to skip second DB fetch)
   const ctx = await buildAIContext(db, userId, from, settings)
@@ -95,14 +101,16 @@ Deno.serve(async (req) => {
   }
 
   if (state.turns.filter(t => t.role === 'user').length > MAX_TURNS) {
-    await finalizeCall(db, callSid, userId, from, state, 'Hovor ukončen — překročen limit otázek.')
-    return twimlSpeak('Zkuste prosím zavolat znovu nebo nás kontaktujte jinak. Nashledanou.', voiceId, true)
+    const limitSummary = isEN ? 'Call ended — question limit exceeded.' : 'Hovor ukončen — překročen limit otázek.'
+    const limitMsg = isEN ? 'Please try calling again or contact us another way. Goodbye.' : 'Zkuste prosím zavolat znovu nebo nás kontaktujte jinak. Nashledanou.'
+    await finalizeCall(db, callSid, userId, from, state, limitSummary)
+    return twimlSpeak(limitMsg, voiceId, true, sayLang)
   }
 
   const systemPrompt = buildGatherSystemPrompt(ctx)
   const messages = state.turns.map(t => ({ role: t.role, content: t.content }))
 
-  let action: AIAction = await callAI(systemPrompt, messages)
+  let action: AIAction = await callAI(systemPrompt, messages, sayLang)
 
   // Handle get_more_slots — inject fresh slots and re-query AI
   if (!action.done && action.action === 'get_more_slots' && action.slot_request) {
@@ -132,7 +140,7 @@ Deno.serve(async (req) => {
           ? `[systém: volné termíny ${dayLabel}: ${times.join(', ')}. Nabídni zákazníkovi tyto termíny.]`
           : `[systém: ${dayLabel} nemáme volné termíny. Doporuč jiný den.]`
         state.turns.push({ role: 'user', content: slotsMsg })
-        action = await callAI(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })))
+        action = await callAI(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })), sayLang)
       } catch { /* fall through with original action */ }
     }
   }
@@ -162,13 +170,13 @@ Deno.serve(async (req) => {
           role: 'user',
           content: `[systém: navrhovaný čas (${proposedDate.toLocaleString('cs-CZ', { timeZone: ctx.company.timezone })}) není volný. Nejbližší volné termíny: ${altList}. Nabídni zákazníkovi tyto alternativy.]`,
         })
-        action = await callAI(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })))
+        action = await callAI(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })), sayLang)
       } else if (slots.length === 0) {
         state.turns.push({
           role: 'user',
           content: '[systém: v navrhovaném termínu ani v blízkém okolí není žádný volný čas. Informuj zákazníka a nabídni zavolání zpět nebo přepojení.]',
         })
-        action = await callAI(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })))
+        action = await callAI(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })), sayLang)
       }
     }
   }
@@ -211,12 +219,12 @@ Deno.serve(async (req) => {
       }
     }
     await finalizeCall(db, callSid, userId, from, state, action.update_summary ?? 'Zákazník zrušil rezervaci.', extractedName)
-    return twimlSpeak(action.speak, voiceId, true)
+    return twimlSpeak(action.speak, voiceId, true, sayLang)
   }
 
   if (action.done && action.transfer && ctx.company.escalationPhone) {
     await finalizeCall(db, callSid, userId, from, state, action.update_summary, extractedName)
-    return twimlTransfer(action.speak, ctx.company.escalationPhone, voiceId)
+    return twimlTransfer(action.speak, ctx.company.escalationPhone, voiceId, sayLang)
   }
 
   if (action.done && action.booking) {
@@ -263,12 +271,12 @@ Deno.serve(async (req) => {
     }
 
     await finalizeCall(db, callSid, userId, from, state, action.update_summary, action.booking.customer_name, bookingId)
-    return twimlSpeak(action.speak, voiceId, true)
+    return twimlSpeak(action.speak, voiceId, true, sayLang)
   }
 
   if (action.done) {
     await finalizeCall(db, callSid, userId, from, state, action.update_summary, extractedName)
-    return twimlSpeak(action.speak, voiceId, true)
+    return twimlSpeak(action.speak, voiceId, true, sayLang)
   }
 
   await db.from('calls')
@@ -276,14 +284,17 @@ Deno.serve(async (req) => {
     .eq('twilio_call_sid', callSid)
 
   const gatherUrl = escapeXml(`${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-gather`)
+  const isEN = ctx.company.language === 'en-US'
+  const sayLang = isEN ? 'en-US' : 'cs-CZ'
+  const notHeard = isEN ? "Sorry, I didn't hear you." : 'Promiňte, neslyšela jsem vás.'
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather input="speech" action="${gatherUrl}" method="POST"
-          timeout="5" speechTimeout="auto" language="cs-CZ"
+          timeout="5" speechTimeout="auto" language="${sayLang}"
           actionOnEmptyResult="true">
-    ${speak(action.speak, voiceId)}
+    ${speak(action.speak, voiceId, sayLang)}
   </Gather>
-  ${speak('Promiňte, neslyšela jsem vás.', voiceId)}
+  ${speak(notHeard, voiceId, sayLang)}
 </Response>`
 
   return new Response(twiml, { headers: { 'Content-Type': 'text/xml; charset=utf-8' } })
@@ -291,9 +302,13 @@ Deno.serve(async (req) => {
 
 // ─── AI ─────────────────────────────────────────────────────────────────────
 
-const TECH_ERROR: AIAction = {
-  speak: 'Omlouváme se, momentálně mám technické potíže. Zavolejte prosím znovu.',
-  done: true,
+function techError(lang: string): AIAction {
+  return {
+    speak: lang === 'en-US'
+      ? "Sorry, I'm having technical issues right now. Please call again."
+      : 'Omlouváme se, momentálně mám technické potíže. Zavolejte prosím znovu.',
+    done: true,
+  }
 }
 
 /**
@@ -303,6 +318,7 @@ const TECH_ERROR: AIAction = {
 async function callAI(
   systemPrompt: string,
   messages: Array<{ role: string; content: string }>,
+  lang = 'cs-CZ',
 ): Promise<AIAction> {
   const providers: Array<() => Promise<AIAction | null>> = []
   if (Deno.env.get('GEMINI_API_KEY'))    providers.push(() => callOpenAICompatible(systemPrompt, messages, 'gemini'))
@@ -318,7 +334,7 @@ async function callAI(
       console.error('[twilio-gather] provider failed, trying next:', err)
     }
   }
-  return TECH_ERROR
+  return techError(lang)
 }
 
 // OpenAI, Gemini and Groq all share the /chat/completions request shape.
@@ -444,25 +460,26 @@ async function finalizeCall(
 
 // ─── TwiML ───────────────────────────────────────────────────────────────────
 
-function speak(text: string, voiceId: string | null): string {
+function speak(text: string, voiceId: string | null, lang = 'cs-CZ'): string {
   if (voiceId) {
     const url = `${Deno.env.get('SUPABASE_URL')}/functions/v1/tts?t=${encodeURIComponent(text)}&v=${encodeURIComponent(voiceId)}`
     return `<Play>${escapeXml(url)}</Play>`
   }
-  return `<Say voice="${FALLBACK_VOICE}" language="cs-CZ">${escapeXml(text)}</Say>`
+  const voice = lang === 'en-US' ? 'Polly.Joanna' : FALLBACK_VOICE
+  return `<Say voice="${voice}" language="${lang}">${escapeXml(text)}</Say>`
 }
 
-function twimlSpeak(text: string, voiceId: string | null, hangup = false) {
+function twimlSpeak(text: string, voiceId: string | null, hangup = false, lang = 'cs-CZ') {
   const close = hangup ? '<Hangup/>' : ''
   return new Response(
-    `<?xml version="1.0" encoding="UTF-8"?><Response>${speak(text, voiceId)}${close}</Response>`,
+    `<?xml version="1.0" encoding="UTF-8"?><Response>${speak(text, voiceId, lang)}${close}</Response>`,
     { headers: { 'Content-Type': 'text/xml; charset=utf-8' } },
   )
 }
 
-function twimlTransfer(speakText: string, dialNumber: string, voiceId: string | null) {
+function twimlTransfer(speakText: string, dialNumber: string, voiceId: string | null, lang = 'cs-CZ') {
   return new Response(
-    `<?xml version="1.0" encoding="UTF-8"?><Response>${speak(speakText, voiceId)}<Dial>${escapeXml(dialNumber)}</Dial></Response>`,
+    `<?xml version="1.0" encoding="UTF-8"?><Response>${speak(speakText, voiceId, lang)}<Dial>${escapeXml(dialNumber)}</Dial></Response>`,
     { headers: { 'Content-Type': 'text/xml; charset=utf-8' } },
   )
 }

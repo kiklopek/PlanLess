@@ -27,7 +27,7 @@ Deno.serve(async (req) => {
   for (const variant of phoneVariants) {
     const { data } = await db
       .from('company_settings')
-      .select('user_id, company_name, ai_greeting, working_hours, timezone, ai_paused, escalation_phone, elevenlabs_voice_id, twilio_phone_number')
+      .select('user_id, company_name, ai_greeting, working_hours, timezone, ai_paused, escalation_phone, elevenlabs_voice_id, twilio_phone_number, ai_language')
       .eq('twilio_phone_number', variant)
       .maybeSingle()
     if (data) { settings = data; break }
@@ -49,14 +49,32 @@ Deno.serve(async (req) => {
   const company = settings.company_name ?? 'salonu'
   const tz      = settings.timezone ?? 'Europe/Prague'
   const wh      = settings.working_hours ?? null
+  const lang    = settings.ai_language ?? 'cs-CZ'
+  const isEN    = lang === 'en-US'
+  const sayLang = isEN ? 'en-US' : 'cs-CZ'
+  const sayVoice = isEN ? 'Polly.Joanna' : FALLBACK_VOICE
+
+  const msgs = isEN ? {
+    transferring: 'Transferring you to reception, one moment please.',
+    receptionUnavailable: "Sorry, reception is currently unavailable. Please call back later.",
+    outsideHoursPrefix: (c: string, t: string) => `Hello, this is ${c}. We are currently outside business hours. We are here for you ${t}. Please call us back then, we'll be happy to help.`,
+    fallbackGreeting: (c: string) => `Hello, welcome to ${c}. How can I help you?`,
+    notHeard: "Sorry, I didn't hear you. Please call back again.",
+  } : {
+    transferring: 'Přepojuji vás na recepci, okamžik prosím.',
+    receptionUnavailable: 'Omlouváme se, recepce je momentálně nedostupná. Zavolejte prosím později.',
+    outsideHoursPrefix: (c: string, t: string) => `Dobrý den, ${c}. Momentálně jsme mimo provozní dobu. Jsme tu pro vás ${t}. Zavolejte nám prosím tehdy, rádi vám pomůžeme.`,
+    fallbackGreeting: (c: string) => `Dobrý den, vítejte v ${c}. Čím vám mohu pomoci?`,
+    notHeard: 'Promiňte, neslyšela jsem vás. Zavolejte nám prosím znovu.',
+  }
 
   // AI manually paused
   if (settings.ai_paused) {
     console.log('[twilio-voice] AI paused → escalation or hangup')
     if (settings.escalation_phone) {
-      return xml(`<Say voice="${FALLBACK_VOICE}" language="cs-CZ">Přepojuji vás na recepci, okamžik prosím.</Say><Dial>${esc(settings.escalation_phone)}</Dial>`)
+      return xml(`<Say voice="${sayVoice}" language="${sayLang}">${esc(msgs.transferring)}</Say><Dial>${esc(settings.escalation_phone)}</Dial>`)
     }
-    return xml(`<Say voice="${FALLBACK_VOICE}" language="cs-CZ">Omlouváme se, recepce je momentálně nedostupná. Zavolejte prosím později.</Say><Hangup/>`)
+    return xml(`<Say voice="${sayVoice}" language="${sayLang}">${esc(msgs.receptionUnavailable)}</Say><Hangup/>`)
   }
 
   // Out of working hours
@@ -65,8 +83,8 @@ Deno.serve(async (req) => {
     console.log('[twilio-voice] working hours check', { open, tz })
     if (!open) {
       const nextOpen = nextOpeningTime(wh, tz)
-      const msg = `Dobrý den, ${company}. Momentálně jsme mimo provozní dobu. Jsme tu pro vás ${nextOpen}. Zavolejte nám prosím tehdy, rádi vám pomůžeme.`
-      return xml(`<Say voice="${FALLBACK_VOICE}" language="cs-CZ">${esc(msg)}</Say><Hangup/>`)
+      const msg = msgs.outsideHoursPrefix(company, nextOpen)
+      return xml(`<Say voice="${sayVoice}" language="${sayLang}">${esc(msg)}</Say><Hangup/>`)
     }
   }
 
@@ -80,22 +98,22 @@ Deno.serve(async (req) => {
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const gatherUrl = supabaseUrl + '/functions/v1/twilio-gather'
-  const greeting = settings.ai_greeting ?? `Dobrý den, vítejte v ${company}. Čím vám mohu pomoci?`
+  const greeting = settings.ai_greeting ?? msgs.fallbackGreeting(company)
 
-  console.log('[twilio-voice] routing to gather', { gatherUrl, greeting, voiceId: !!voiceId })
+  console.log('[twilio-voice] routing to gather', { gatherUrl, greeting, voiceId: !!voiceId, lang })
 
   const greetingTwiml = voiceId
     ? `<Play>${esc(`${supabaseUrl}/functions/v1/tts?t=${encodeURIComponent(greeting)}&v=${encodeURIComponent(voiceId)}`)}</Play>`
-    : `<Say voice="${FALLBACK_VOICE}" language="cs-CZ">${esc(greeting)}</Say>`
+    : `<Say voice="${sayVoice}" language="${sayLang}">${esc(greeting)}</Say>`
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather input="speech" action="${esc(gatherUrl)}" method="POST"
-          timeout="5" speechTimeout="auto" language="cs-CZ"
+          timeout="5" speechTimeout="auto" language="${sayLang}"
           actionOnEmptyResult="true">
     ${greetingTwiml}
   </Gather>
-  <Say voice="${FALLBACK_VOICE}" language="cs-CZ">Promiňte, neslyšela jsem vás. Zavolejte nám prosím znovu.</Say>
+  <Say voice="${sayVoice}" language="${sayLang}">${esc(msgs.notHeard)}</Say>
 </Response>`
 
   return new Response(twiml, { headers: { 'Content-Type': 'text/xml; charset=utf-8' } })

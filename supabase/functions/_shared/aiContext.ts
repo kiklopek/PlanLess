@@ -24,6 +24,7 @@ export interface AIContext {
     aiConfirmSms: boolean
     allowUnknownService: boolean
     elevenlabsVoiceId: string | null
+    language: string
   }
   services: Array<{
     id: string
@@ -79,7 +80,7 @@ export async function buildAIContext(
         'lead_time_minutes', 'max_booking_horizon_days', 'default_buffer_minutes',
         'ai_auto_book', 'ai_confirm_sms', 'allow_unknown_service',
         'escalation_phone', 'twilio_phone_number', 'twilio_account_sid', 'twilio_auth_token',
-        'elevenlabs_voice_id',
+        'elevenlabs_voice_id', 'ai_language',
       ].join(', ')).eq('user_id', userId).maybeSingle()
 
   const [settingsRes, servicesRes, staffRes, customerRes] = await Promise.all([
@@ -105,6 +106,8 @@ export async function buildAIContext(
   const wh = cfg?.working_hours ?? {}
 
   const now = new Date()
+  const lang = cfg?.ai_language ?? 'cs-CZ'
+  const locale = lang === 'en-US' ? 'en-US' : 'cs-CZ'
 
   const [historyRes, upcomingRes] = customer?.id
     ? await Promise.all([
@@ -146,11 +149,11 @@ export async function buildAIContext(
         6,
       )
       if (!daySlots.length) continue
-      const dayLabel = day.toLocaleDateString('cs-CZ', {
+      const dayLabel = day.toLocaleDateString(locale, {
         weekday: 'long', day: 'numeric', month: 'long', timeZone: tz,
       })
       const times = daySlots.slice(0, 5).map(s =>
-        s.startsAt.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit', timeZone: tz }),
+        s.startsAt.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: tz }),
       )
       slotsLines.push(`${dayLabel}: ${times.join(', ')}`)
       allSlots.push(...daySlots.slice(0, 5))
@@ -158,8 +161,12 @@ export async function buildAIContext(
   }
 
   const slotsText = slotsLines.length
-    ? `Aktuálně volné termíny:\n${slotsLines.join('\n')}`
-    : 'Momentálně nejsou volné termíny v nejbližší době.'
+    ? (lang === 'en-US'
+        ? `Currently available slots:\n${slotsLines.join('\n')}`
+        : `Aktuálně volné termíny:\n${slotsLines.join('\n')}`)
+    : (lang === 'en-US'
+        ? 'No available slots in the near future.'
+        : 'Momentálně nejsou volné termíny v nejbližší době.')
 
   return {
     company: {
@@ -181,6 +188,7 @@ export async function buildAIContext(
       aiConfirmSms: cfg?.ai_confirm_sms !== false,
       allowUnknownService: cfg?.allow_unknown_service === true,
       elevenlabsVoiceId: cfg?.elevenlabs_voice_id ?? null,
+      language: cfg?.ai_language ?? 'cs-CZ',
     },
     services: services.map(s => ({
       id: s.id,
