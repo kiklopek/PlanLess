@@ -81,7 +81,6 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const gatherUrl = supabaseUrl + '/functions/v1/twilio-gather'
   const greeting = settings.ai_greeting ?? `Dobrý den, vítejte v ${company}. Čím vám mohu pomoci?`
-  const voiceId = settings.elevenlabs_voice_id ?? null
 
   console.log('[twilio-voice] routing to gather', { gatherUrl, greeting, voiceId: !!voiceId })
 
