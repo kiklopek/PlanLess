@@ -268,7 +268,7 @@ export function buildWorkingHoursSummary(
 }
 
 export function matchService(
-  services: Array<{ id: string; name: string }>,
+  services: Array<{ id: string; name: string; durationMin?: number; bufferAfterMin?: number; [key: string]: any }>,
   name: string,
 ) {
   const n = name.toLowerCase()
