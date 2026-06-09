@@ -284,8 +284,6 @@ Deno.serve(async (req) => {
     .eq('twilio_call_sid', callSid)
 
   const gatherUrl = escapeXml(`${Deno.env.get('SUPABASE_URL')}/functions/v1/twilio-gather`)
-  const isEN = ctx.company.language === 'en-US'
-  const sayLang = isEN ? 'en-US' : 'cs-CZ'
   const notHeard = isEN ? "Sorry, I didn't hear you." : 'Promiňte, neslyšela jsem vás.'
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
