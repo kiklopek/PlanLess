@@ -327,3 +327,7 @@ ALTER TABLE public.calls ADD COLUMN IF NOT EXISTS ai_context_snapshot jsonb;
 
 -- AI conversation language: 'cs-CZ' (default) or 'en-US'
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS ai_language text DEFAULT 'cs-CZ';
+
+-- Phase 14: Managed Twilio provisioning
+-- Timestamp when PlanLess auto-provisioned a phone number for the user
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS phone_provisioned_at timestamptz;

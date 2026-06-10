@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase.js';
 import { saveCompanySettings } from '../lib/companySettings.js';
 import { createService } from '../lib/servicesDb.js';
 import { createStaff } from '../lib/staffDb.js';
+import { elevenlabsIdFor } from '../lib/voiceCatalog.js';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
@@ -753,33 +754,25 @@ function StepVoice({ data, set }) {
   );
 }
 
-/* ── Step 15: Phone ── */
-function StepPhone({ data, set }) {
+/* ── Step 15: Phone (managed) ── */
+function StepPhone({ data }) {
   return (
     <>
       <Eyebrow step={15} label="telefon" />
-      <h1 className="ob-title">Připojte <span className="it">Twilio</span> číslo</h1>
-      <p className="ob-sub">Přes Twilio přijímám hovory. Tento krok můžete přeskočit a doplnit v Nastavení → Integrace.</p>
+      <h1 className="ob-title">Vaše <span className="it">AI linka</span></h1>
+      <p className="ob-sub">PlanLess vám automaticky přiřadí vlastní telefonní číslo. Nemusíte se starat o nic externího.</p>
       <div className="ob-field-group">
         <div className="ob-field">
-          <div className="ob-field-label">Twilio telefonní číslo</div>
-          <input className="ob-input" placeholder="+420277140220" value={data.twilioPhone} onChange={e => set({ twilioPhone: e.target.value })} style={{ maxWidth: 300 }} type="tel" />
-          <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 8 }}>
-            Ještě nemáte Twilio?{' '}
-            <a href="https://www.twilio.com/try-twilio" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>Vytvořte bezplatný účet →</a>
-          </div>
-        </div>
-        <div className="ob-field">
-          <div className="ob-field-label">Jak propojit</div>
+          <div className="ob-field-label">Co dostanete</div>
           <ol style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.9, paddingLeft: 20, margin: '8px 0 0' }}>
-            <li>Twilio Console → Phone Numbers → Active Numbers → klikněte na číslo</li>
-            <li>Voice Configuration → A call comes in → Webhook</li>
-            <li>URL zkopírujte z Nastavení → Integrace → Twilio (po dokončení)</li>
-            <li>Method: <strong>HTTP POST</strong> → uložit</li>
+            <li>Vlastní české telefonní číslo přiřazené po aktivaci předplatného</li>
+            <li>AI recepční Nikola přijímá hovory 24/7</li>
+            <li>Automatické rezervace a SMS potvrzení</li>
+            <li>Žádné nastavování webhooků ani externích účtů</li>
           </ol>
         </div>
       </div>
-      <NikolaSays>Stačí jedno číslo. Webhook URL vám ukáži hned po dokončení nastavení.</NikolaSays>
+      <NikolaSays>Číslo vám přiřadíme automaticky po dokončení onboardingu. Hned ho uvidíte v Nastavení.</NikolaSays>
     </>
   );
 }
@@ -865,10 +858,7 @@ function StepDone({ data, goTo }) {
           {voiceName} · <span style={{ color: 'var(--ink-3)' }}>{toneNames[data.tone]}</span>
         </Row>
         <Row label="Telefon" editStep={15}>
-          {data.twilioPhone
-            ? <span className="mono" style={{ color: 'var(--accent)' }}>{data.twilioPhone}</span>
-            : <span style={{ color: 'var(--ink-3)' }}>Nezadáno</span>
-          }
+          <span style={{ color: 'var(--ink-3)' }}>Číslo bude přiřazeno automaticky po aktivaci</span>
         </Row>
         {data.escalationPhone && (
           <Row label="Záložní tel." editStep={9}>
@@ -879,17 +869,9 @@ function StepDone({ data, goTo }) {
       <div className="ob-test-card">
         <div className="ic">N</div>
         <div className="body">
-          <div className="head">Zavolejte si na zkoušku</div>
-          <div className="sub">Zavolejte na vaše Twilio číslo — Nikola pozdraví a vy si vyzkoušíte celý průběh.</div>
+          <div className="head">Vaše AI linka bude připravena za chvíli</div>
+          <div className="sub">Po aktivaci předplatného uvidíte své číslo v Nastavení → Telefonie.</div>
         </div>
-        <button
-          className="ob-btn ob-btn-accent"
-          disabled={!data.twilioPhone}
-          title={data.twilioPhone ? '' : 'Nejprve zadejte Twilio číslo'}
-          onClick={() => data.twilioPhone && window.open(`tel:${data.twilioPhone}`, '_self')}
-        >
-          <I.Phone s={14} /> {data.twilioPhone ? 'Zavolat si' : 'Zadejte Twilio číslo'}
-        </button>
       </div>
     </>
   );
@@ -1045,8 +1027,8 @@ export default function Onboarding() {
         working_hours:            buildWorkingHours(data.hours),
         ai_voice:                 data.voice,
         ai_tone:                  data.tone,
+        elevenlabs_voice_id:      elevenlabsIdFor(data.voice),
         onboarding_completed:     true,
-        ...(data.twilioPhone ? { twilio_phone_number: data.twilioPhone } : {}),
       });
 
       const validServices = data.services.filter(s => s.name.trim());
@@ -1093,7 +1075,7 @@ export default function Onboarding() {
       case 12: return <StepServices  data={data} set={set} />;
       case 13: return <StepTeam      data={data} set={set} />;
       case 14: return <StepVoice     data={data} set={set} />;
-      case 15: return <StepPhone     data={data} set={set} />;
+      case 15: return <StepPhone     data={data} />;
       case 16: return <StepDone      data={data} goTo={goTo} />;
       default: return null;
     }

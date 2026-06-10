@@ -11,6 +11,7 @@ import { fetchBookings, createBooking, deleteBooking, clearCachedBookings } from
 import { fetchBlocks, createBlock, deleteBlock, clearCachedBlocks } from '../lib/blocksDb.js';
 import { createFollowup, fetchFollowups, cancelFollowup, retryFollowup } from '../lib/followupsDb.js';
 import { getCompanySettings, saveCompanySettings } from '../lib/companySettings.js';
+import { VOICE_CATALOG, elevenlabsIdFor } from '../lib/voiceCatalog.js';
 import { supabase } from '../lib/supabase.js';
 import { SuggestedSlots } from '../components/SuggestedSlots.jsx';
 import toast from 'react-hot-toast';
@@ -2104,7 +2105,6 @@ const SetAI = ({ user, companySettings, onSettingsSaved }) => {
   const [aiPaused, setAiPaused] = useState(() => companySettings?.ai_paused ?? false);
   const [confirmTemplate, setConfirmTemplate] = useState(() => companySettings?.sms_confirm_template ?? '');
   const [reminderTemplate, setReminderTemplate] = useState(() => companySettings?.sms_reminder_template ?? '');
-  const [elevenlabsVoiceId, setElevenlabsVoiceId] = useState(() => companySettings?.elevenlabs_voice_id ?? '');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -2117,7 +2117,6 @@ const SetAI = ({ user, companySettings, onSettingsSaved }) => {
     setAiPaused(companySettings.ai_paused ?? false);
     setConfirmTemplate(companySettings.sms_confirm_template ?? '');
     setReminderTemplate(companySettings.sms_reminder_template ?? '');
-    setElevenlabsVoiceId(companySettings.elevenlabs_voice_id ?? '');
   }, [companySettings]);
 
   const companyName = companySettings?.company_name || 'váš salon';
@@ -2126,7 +2125,7 @@ const SetAI = ({ user, companySettings, onSettingsSaved }) => {
     if (!user) return;
     setSaving(true);
     try {
-      const saved = await saveCompanySettings(user.id, { ...(companySettings ?? {}), ai_voice: voice, ai_tone: tone, ai_auto_book: autoBook, ai_confirm_sms: confirmSms, reminder_enabled: reminderEnabled, ai_paused: aiPaused, sms_confirm_template: confirmTemplate.trim() || null, sms_reminder_template: reminderTemplate.trim() || null, elevenlabs_voice_id: elevenlabsVoiceId.trim() || null });
+      const saved = await saveCompanySettings(user.id, { ...(companySettings ?? {}), ai_voice: voice, ai_tone: tone, ai_auto_book: autoBook, ai_confirm_sms: confirmSms, reminder_enabled: reminderEnabled, ai_paused: aiPaused, sms_confirm_template: confirmTemplate.trim() || null, sms_reminder_template: reminderTemplate.trim() || null, elevenlabs_voice_id: elevenlabsIdFor(voice) });
       onSettingsSaved?.(saved);
       toast.success('Nastavení AI uloženo.');
     } catch (e) {
@@ -2136,11 +2135,12 @@ const SetAI = ({ user, companySettings, onSettingsSaved }) => {
     }
   };
 
-  const voices = [
-    { id: 'nikola', name: 'Nikola', ds: 'Teplý, konverzační',   tg: ['CZ', 'ženský', 'neutrální'] },
-    { id: 'petra',  name: 'Petra',  ds: 'Profesionální, jasný', tg: ['CZ', 'ženský', 'formální'] },
-    { id: 'david',  name: 'David',  ds: 'Klidný, důvěryhodný',  tg: ['CZ', 'mužský'] },
-  ];
+  const voices = VOICE_CATALOG.map((v) => ({
+    id: v.id,
+    name: v.label,
+    ds: v.description,
+    tg: ['CZ', v.gender === 'female' ? 'ženský' : 'mužský'],
+  }));
 
   return (
     <div className="card lg">
@@ -2152,44 +2152,18 @@ const SetAI = ({ user, companySettings, onSettingsSaved }) => {
       <div className="form-row">
         <div>
           <div className="lbl">Hlas</div>
-          <div className="desc">Výběr hlasu bude dostupný po propojení s telefonií.</div>
+          <div className="desc">Vyberte hlas, kterým bude Nikola mluvit. Hlasy jsou připravené — bez ručního nastavování.</div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
           {voices.map((v) => (
             <div key={v.id} className={cx('voice-card', voice === v.id && 'on')} onClick={() => setVoice(v.id)}>
               <div className="h">
                 <div className="nm">{v.name}</div>
-                <Btn variant="ghost" size="sm" icon={I.Play} disabled title="Ukázky hlasů budou dostupné po propojení s Twilio" onClick={(e) => e.stopPropagation()} />
               </div>
               <div className="ds">{v.ds}</div>
               <div className="tgs">{v.tg.map((t) => <Tag key={t}>{t}</Tag>)}</div>
             </div>
           ))}
-        </div>
-      </div>
-
-      <div className="form-row">
-        <div>
-          <div className="lbl">ElevenLabs Voice ID</div>
-          <div className="desc">ID hlasu z ElevenLabs pro přirozený český hlas. Bez vyplnění se použije AWS Polly.</div>
-        </div>
-        <div className="col gap-2" style={{ maxWidth: 340 }}>
-          <input
-            value={elevenlabsVoiceId}
-            onChange={e => setElevenlabsVoiceId(e.target.value)}
-            placeholder="EXAVITQu4vr4xnSDxMaL"
-            className="field"
-            style={{ fontFamily: 'monospace', fontSize: 13 }}
-          />
-          <div className="muted" style={{ fontSize: 12 }}>
-            Najdi ho na <a href="https://elevenlabs.io/app/voice-library" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>elevenlabs.io/app/voice-library</a>. Doporučujeme hlas podporující češtinu (model Multilingual v2).
-          </div>
-          {elevenlabsVoiceId && (
-            <div className="card thin" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px' }}>
-              <I.Check size={14} style={{ color: 'var(--ok, #22c55e)', flexShrink: 0 }} />
-              <span style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>ElevenLabs hlas nastaven — Nikola bude mluvit přirozeně.</span>
-            </div>
-          )}
         </div>
       </div>
 
@@ -2455,7 +2429,7 @@ const SetRules = ({ user, companySettings, onSettingsSaved }) => {
 const SetInteg = ({ user, companySettings, onSettingsSaved }) => {
   const [expanded, setExpanded]   = useState(null);
   const [twilioPhone, setTwilioPhone]   = useState(companySettings?.twilio_phone_number ?? '');
-  const [savingTwilio, setSavingTwilio] = useState(false);
+  const [provisioning, setProvisioning] = useState(false);
   const [gcalConnected, setGcalConnected] = useState(!!(companySettings?.gcal_access_token));
   const [syncingGcal, setSyncingGcal] = useState(false);
   const [bookingSlug, setBookingSlug] = useState(companySettings?.booking_slug ?? '');
@@ -2480,20 +2454,36 @@ const SetInteg = ({ user, companySettings, onSettingsSaved }) => {
   }, [companySettings]);
 
   const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? '';
-  const twilioWebhookUrl = SUPABASE_URL ? `${SUPABASE_URL}/functions/v1/twilio-voice` : '';
   const healthCheckUrl = SUPABASE_URL ? `${SUPABASE_URL}/functions/v1/health` : '';
 
-  async function saveTwilioPhone() {
-    if (!user) return;
-    setSavingTwilio(true);
+  async function provisionPhone() {
+    if (!user || !SUPABASE_URL) return;
+    setProvisioning(true);
     try {
-      await saveCompanySettings(user.id, { twilio_phone_number: twilioPhone.trim() || null });
-      toast.success('Twilio číslo uloženo.');
+      const { data: { session } } = await supabase.auth.getSession();
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/provision-phone-number`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ user_id: user.id }),
+      });
+      const result = await resp.json();
+      if (!resp.ok) {
+        if (result.error === 'subscription_required') {
+          toast.error('Pro získání čísla je potřeba aktivní předplatné.');
+        } else if (result.error === 'no_numbers_available') {
+          toast.error('Momentálně nejsou dostupná žádná čísla. Zkuste to za chvíli.');
+        } else {
+          toast.error('Nepodařilo se přiřadit číslo. Zkuste to znovu.');
+        }
+        return;
+      }
+      setTwilioPhone(result.phone);
+      toast.success(`Vaše AI linka: ${result.phone}`);
       if (onSettingsSaved) onSettingsSaved();
     } catch (e) {
-      toast.error(e.message || 'Chyba při ukládání.');
+      toast.error(e.message || 'Chyba při získávání čísla.');
     } finally {
-      setSavingTwilio(false);
+      setProvisioning(false);
     }
   }
 
@@ -2578,54 +2568,45 @@ const SetInteg = ({ user, companySettings, onSettingsSaved }) => {
 
   return (
     <div className="col gap-4">
-      {/* ── Twilio ──────────────────────────────────────────────── */}
+      {/* ── Telefonní linka (managed) ──────────────────────────── */}
       <div className="card lg">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
           <div>
             <div className="eyebrow">Telefonie</div>
-            <div className="h-section" style={{ fontSize: 20, marginTop: 6 }}>Twilio · AI recepční</div>
+            <div className="h-section" style={{ fontSize: 20, marginTop: 6 }}>Vaše AI linka</div>
           </div>
           <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.04)', color: 'var(--ink-2)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
             <I.Phone s={18} />
           </div>
         </div>
         <div className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 20 }}>
-          Propojte Twilio číslo, aby AI recepční Nikola přijímala hovory a rezervovala termíny.
+          PlanLess vám automaticky přiřadí vlastní telefonní číslo. Nemusíte zakládat účet u Twilio ani nic konfigurovat.
         </div>
 
         <div className="col gap-3">
-          <div>
-            <div className="lbl" style={{ marginBottom: 6 }}>Vaše Twilio telefonní číslo</div>
-            <div className="row gap-2">
-              <input
-                style={inputSt}
-                value={twilioPhone}
-                onChange={e => setTwilioPhone(e.target.value)}
-                placeholder="+420 XXX XXX XXX"
-              />
-              <Btn variant="accent" size="sm" onClick={saveTwilioPhone} disabled={savingTwilio}>
-                {savingTwilio ? 'Ukládám…' : 'Uložit'}
-              </Btn>
+          {twilioPhone ? (
+            <div className="card thin" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div className="muted" style={{ fontSize: 12, marginBottom: 2 }}>Číslo vaší AI recepční</div>
+                <div style={{ fontSize: 18, fontWeight: 600, fontFamily: 'monospace' }}>{twilioPhone}</div>
+              </div>
+              <Btn variant="ghost" size="sm" icon={I.Copy} onClick={() => { navigator.clipboard.writeText(twilioPhone); toast.success('Zkopírováno'); }}>Kopírovat</Btn>
             </div>
-          </div>
-
-          {twilioWebhookUrl && (
-            <div>
-              <div className="lbl" style={{ marginBottom: 6 }}>Voice Webhook URL <span className="muted">(nastavte v Twilio Console)</span></div>
-              <div className="field row gap-2" style={{ padding: '8px 12px', alignItems: 'center' }}>
-                <span className="mono muted" style={{ fontSize: 12, flex: 1, wordBreak: 'break-all' }}>{twilioWebhookUrl}</span>
-                <Btn variant="ghost" size="sm" icon={I.Copy} onClick={() => { navigator.clipboard.writeText(twilioWebhookUrl); toast.success('Zkopírováno'); }} />
+          ) : (
+            <div className="card thin" style={{ padding: '14px 16px' }}>
+              <div className="muted" style={{ fontSize: 13, marginBottom: 10 }}>
+                Číslo zatím nebylo přiřazeno. Aktivujte si předplatné nebo klikněte níže.
               </div>
-              <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.55 }}>
-                V Twilio Console → Phone Numbers → Active Numbers → vyberte číslo → Voice Configuration → nastavte tento URL jako webhook při příchozím hovoru (HTTP POST).
-              </div>
+              <Btn variant="accent" size="sm" onClick={provisionPhone} disabled={provisioning}>
+                {provisioning ? 'Získávám číslo…' : 'Získat moje AI číslo'}
+              </Btn>
             </div>
           )}
 
           <div className="card thin" style={{ padding: '12px 16px', background: 'var(--accent-soft)' }}>
             <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>Jak to funguje</div>
             <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6 }}>
-              Zákazník zavolá na vaše Twilio číslo → Nikola (AI) se představí a zeptá se, co zákazník potřebuje → Claude zpracuje odpověď a zarezervuje termín → Zákazník dostane SMS potvrzení.
+              Zákazník zavolá na vaše číslo → Nikola se představí a zeptá se na rezervaci → AI zarezervuje termín → Zákazník dostane SMS potvrzení. Vše automaticky.
             </div>
           </div>
         </div>

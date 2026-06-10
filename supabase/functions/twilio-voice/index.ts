@@ -45,6 +45,22 @@ Deno.serve(async (req) => {
     return xml(`<Say voice="${FALLBACK_VOICE}" language="cs-CZ">Tato linka není správně nakonfigurována. Kontaktujte prosím správce.</Say><Hangup/>`)
   }
 
+  // Gate on subscription — inactive accounts cannot receive AI calls
+  const { data: profile } = await db
+    .from('profiles')
+    .select('is_subscribed')
+    .eq('id', settings.user_id)
+    .maybeSingle()
+  if (!profile?.is_subscribed) {
+    console.warn('[twilio-voice] subscription inactive', { userId: settings.user_id })
+    const inactiveLang = settings.ai_language === 'en-US' ? 'en-US' : 'cs-CZ'
+    const inactiveVoice = inactiveLang === 'en-US' ? 'Polly.Joanna' : FALLBACK_VOICE
+    const inactiveMsg = inactiveLang === 'en-US'
+      ? 'This line is currently inactive. Please contact the business owner.'
+      : 'Tato linka je momentálně neaktivní. Kontaktujte prosím majitele.'
+    return xml(`<Say voice="${inactiveVoice}" language="${inactiveLang}">${esc(inactiveMsg)}</Say><Hangup/>`)
+  }
+
   const voiceId = settings.elevenlabs_voice_id ?? null
   const company = settings.company_name ?? 'salonu'
   const tz      = settings.timezone ?? 'Europe/Prague'
