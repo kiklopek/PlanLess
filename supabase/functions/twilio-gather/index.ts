@@ -130,15 +130,19 @@ Deno.serve(async (req) => {
           ctx.company.maxHorizonDays,
           8,
         )
-        const dayLabel = targetDate.toLocaleDateString('cs-CZ', {
+        const dayLabel = targetDate.toLocaleDateString(sayLang, {
           weekday: 'long', day: 'numeric', month: 'long', timeZone: ctx.company.timezone,
         })
         const times = slots.slice(0, 6).map(s =>
-          s.startsAt.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit', timeZone: ctx.company.timezone }),
+          s.startsAt.toLocaleTimeString(sayLang, { hour: '2-digit', minute: '2-digit', timeZone: ctx.company.timezone }),
         )
         const slotsMsg = slots.length
-          ? `[systém: volné termíny ${dayLabel}: ${times.join(', ')}. Nabídni zákazníkovi tyto termíny.]`
-          : `[systém: ${dayLabel} nemáme volné termíny. Doporuč jiný den.]`
+          ? (isEN
+              ? `[system: available slots ${dayLabel}: ${times.join(', ')}. Offer these to the customer.]`
+              : `[systém: volné termíny ${dayLabel}: ${times.join(', ')}. Nabídni zákazníkovi tyto termíny.]`)
+          : (isEN
+              ? `[system: no available slots on ${dayLabel}. Suggest another day.]`
+              : `[systém: ${dayLabel} nemáme volné termíny. Doporuč jiný den.]`)
         state.turns.push({ role: 'user', content: slotsMsg })
         action = await callAI(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })), sayLang)
       } catch { /* fall through with original action */ }
@@ -166,15 +170,18 @@ Deno.serve(async (req) => {
 
       if (!exactMatch && slots.length > 0) {
         const altList = slots.slice(0, 3).map(s => s.display).join(', ')
-        state.turns.push({
-          role: 'user',
-          content: `[systém: navrhovaný čas (${proposedDate.toLocaleString('cs-CZ', { timeZone: ctx.company.timezone })}) není volný. Nejbližší volné termíny: ${altList}. Nabídni zákazníkovi tyto alternativy.]`,
-        })
+        const altMsg = isEN
+          ? `[system: proposed time (${proposedDate.toLocaleString('en-US', { timeZone: ctx.company.timezone })}) is not available. Nearest available slots: ${altList}. Offer these alternatives to the customer.]`
+          : `[systém: navrhovaný čas (${proposedDate.toLocaleString('cs-CZ', { timeZone: ctx.company.timezone })}) není volný. Nejbližší volné termíny: ${altList}. Nabídni zákazníkovi tyto alternativy.]`
+        state.turns.push({ role: 'user', content: altMsg })
         action = await callAI(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })), sayLang)
       } else if (slots.length === 0) {
+        const noSlotsMsg = isEN
+          ? '[system: no available slots at the proposed time or nearby. Inform the customer and offer a callback or transfer.]'
+          : '[systém: v navrhovaném termínu ani v blízkém okolí není žádný volný čas. Informuj zákazníka a nabídni zavolání zpět nebo přepojení.]'
         state.turns.push({
           role: 'user',
-          content: '[systém: v navrhovaném termínu ani v blízkém okolí není žádný volný čas. Informuj zákazníka a nabídni zavolání zpět nebo přepojení.]',
+          content: noSlotsMsg,
         })
         action = await callAI(systemPrompt, state.turns.map(t => ({ role: t.role, content: t.content })), sayLang)
       }
